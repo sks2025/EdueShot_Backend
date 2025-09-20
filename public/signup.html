@@ -409,9 +409,18 @@
                     startCountdown(600); // 10 minutes
                     otpInput.focus(); // Focus on OTP input
                 } else {
-                    showAlert(data.message || 'Failed to send OTP. Please try again.', 'error');
-                    sendOtpBtn.disabled = false;
-                    sendOtpBtn.textContent = 'Send OTP';
+                    // Check if user already exists and is verified
+                    if (data.userExists && data.isVerified) {
+                        showAlert('This email is already registered and verified. Please use the login page instead.', 'error');
+                        // Redirect to login page after 3 seconds
+                        setTimeout(() => {
+                            window.location.href = '/login.html';
+                        }, 3000);
+                    } else {
+                        showAlert(data.message || 'Failed to send OTP. Please try again.', 'error');
+                        sendOtpBtn.disabled = false;
+                        sendOtpBtn.textContent = 'Send OTP';
+                    }
                 }
             } catch (error) {
                 showAlert('Network error. Please check your connection.', 'error');
