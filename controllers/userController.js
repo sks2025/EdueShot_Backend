@@ -5,16 +5,16 @@ import authenticateToken from '../Middleware/userAuth.js';
 import sendEmail from '../Common/nodeMailer.js';
 
 
-// Register user
+// Register user with OTP verification
 const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, otp } = req.body;
 
     // Validation
     if (!name || !email || !password || !role) {
       return res.status(400).json({ 
         success: false, 
-        message: "Name, email and password are required" 
+        message: "Name, email, password and role are required" 
       });
     }
 
@@ -27,53 +27,65 @@ const register = async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    // Check if user already exists and is verified
+    const existingVerifiedUser = await User.findOne({ email, isVerified: true });
+    if (existingVerifiedUser) {
       return res.status(400).json({ 
         success: false, 
-        message: 'User already exists with this email' 
+        message: 'User already exists with this email. Please use login instead.' 
       });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // If OTP is provided, verify it and complete registration
+    if (otp) {
+      // Find pending user with matching OTP
+      const pendingUser = await User.findOne({ 
+        email, 
+        otp, 
+        otpExpires: { $gt: new Date() },
+        isVerified: false
+      });
 
-    // Create user (automatically verified since no OTP system)
-    const user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role,
-      isVerified: true
-    });
+      if (!pendingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired OTP. Please request a new OTP."
+        });
+      }
 
-    await user.save();
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-    // const subject = "Verify Your Email – EduSpark";
-    // const text = `Hello ${name},\n\nYour OTP for email verification is: ${otp}\n\nThis code is valid for 10 minutes.`;
-    // const html = `
-    //   <h2>Hello ${name},</h2>
-    //   <p>Your OTP for email verification is:</p>
-    //   <h1 style="letter-spacing:3px;">${otp}</h1>
-    //   <p>This code is valid for <b>10 minutes</b>.</p>
-    // `;
+      // Update pending user to complete registration with verified status
+      pendingUser.name = name;
+      pendingUser.password = hashedPassword;
+      pendingUser.role = role;
+      pendingUser.isVerified = true;
+      pendingUser.otp = undefined;
+      pendingUser.otpExpires = undefined;
+      
+      await pendingUser.save();
 
-    // await sendEmail(email, subject, text, html);
-  
-    const userResponse = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isVerified: user.isVerified,
-      createdAt: user.createdAt
-    };
+      const userResponse = {
+        _id: pendingUser._id,
+        name: pendingUser.name,
+        email: pendingUser.email,
+        role: pendingUser.role,
+        isVerified: pendingUser.isVerified,
+        createdAt: pendingUser.createdAt
+      };
 
-    return res.status(201).json({ 
-      success: true, 
-      message: "User registered successfully. Please check your email for verification OTP.",
-      user: userResponse,
-    });
+      return res.status(201).json({ 
+        success: true, 
+        message: "User registered and email verified successfully!",
+        user: userResponse,
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Please verify your email with OTP before completing registration."
+      });
+    }
   
     } catch (error) {
       console.error('Registration error:', error);
@@ -99,47 +111,90 @@ const sendOtp = async (req, res) => {
       });
     }
 
-    // 2️⃣ Check if user exists
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "No account found with this email"
-      });
-    }
-
-    // Optional: If user is already verified, block sending OTP
-    if (user.isVerified) {
+    // 2️⃣ Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
-        message: "This email is already verified"
+        message: "Please provide a valid email address"
       });
     }
 
-    // 3️⃣ Generate a new OTP (valid for 10 minutes)
+    // 3️⃣ Check if user already exists and is verified
+    const existingVerifiedUser = await User.findOne({ email, isVerified: true });
+    if (existingVerifiedUser) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists with this email. Please use login instead."
+      });
+    }
+
+    // 4️⃣ Generate a new OTP (valid for 10 minutes)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Update user with new OTP
-    user.otp = otp;
-    user.otpExpires = otpExpires;
-    await user.save();
+    console.log('Generated OTP for', email, ':', otp);
+    console.log('OTP expires at:', otpExpires);
 
-    // 4️⃣ Send OTP email
-    const subject = "Your OTP Code – EduSpark";
-    const text = `Hello ${user.name},\n\nYour new OTP for email verification is: ${otp}\n\nThis code will expire in 10 minutes.`;
+    // 5️⃣ Create or update pending user record
+    let pendingUser = await User.findOne({ email, isVerified: false });
+    
+    if (pendingUser) {
+      // Update existing pending user with new OTP
+      pendingUser.otp = otp;
+      pendingUser.otpExpires = otpExpires;
+      await pendingUser.save();
+      console.log('Updated existing pending user with new OTP');
+    } else {
+      // Create new pending user for email verification
+      pendingUser = new User({
+        email,
+        otp,
+        otpExpires,
+        isVerified: false
+      });
+      await pendingUser.save();
+      console.log('Created new pending user for email verification');
+    }
+
+    // 6️⃣ Send OTP email
+    const subject = "Welcome to EduSpark - Email Verification OTP";
+    const text = `Welcome to EduSpark!\n\nYour OTP for email verification is: ${otp}\n\nThis code will expire in 10 minutes.\n\nUse this OTP to complete your new account registration.\n\nIf you didn't create an account with EduSpark, please ignore this email.`;
     const html = `
-      <h2>Hello ${user.name},</h2>
-      <p>Your new OTP for email verification is:</p>
-      <h1 style="letter-spacing:3px;">${otp}</h1>
-      <p>This code is valid for <b>10 minutes</b>.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #667eea; margin: 0;">Welcome to EduSpark!</h1>
+        </div>
+        
+        <h2 style="color: #333;">Email Verification Required</h2>
+        <p>Thank you for starting your registration with EduSpark. To complete your account setup, please verify your email address using the OTP below:</p>
+        
+        <div style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 25px; text-align: center; margin: 25px 0; border-radius: 12px;">
+          <h1 style="letter-spacing: 8px; color: white; margin: 0; font-size: 2.5em;">${otp}</h1>
+        </div>
+        
+        <p><strong>Important:</strong></p>
+        <ul style="color: #555;">
+          <li>This code is valid for <strong>10 minutes</strong></li>
+          <li>Enter this OTP in the registration form to complete your account</li>
+          <li>Do not share this code with anyone</li>
+        </ul>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+        <p style="color: #666; font-size: 12px; text-align: center;">
+          If you didn't create an account with EduSpark, please ignore this email.<br>
+          This is an automated message, please do not reply.
+        </p>
+      </div>
     `;
 
+    console.log('Attempting to send email to:', email);
     await sendEmail(email, subject, text, html);
+    console.log('Email sent successfully to:', email);
 
     return res.status(200).json({
       success: true,
-      message: "A new OTP has been sent to your email address"
+      message: "OTP has been sent to your email address. Please check your inbox to complete registration."
     });
 
   } catch (error) {
@@ -168,7 +223,13 @@ const login = async (req, res) => {
       });
     }
 
-    // User is automatically verified since no OTP system
+    // Check if user is verified
+    if (!user.isVerified) {
+      return res.status(401).json({
+        success: false,
+        message: 'Please verify your email before logging in. Check your email for OTP.'
+      });
+    }
 
     // Check password
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -218,41 +279,38 @@ const verifyOTP = async (request, response) => {
       });
     }
 
-    const user = await User.findOne({ 
+    // Find pending user with matching OTP
+    const pendingUser = await User.findOne({ 
       email: email,
       otp: otp,
-      otpExpires: { $gt: new Date() }
+      otpExpires: { $gt: new Date() },
+      isVerified: false
     });
 
-    if (!user) {
+    if (!pendingUser) {
       return response.status(400).json({
         success: false,
-        message: "Invalid or expired OTP"
+        message: "Invalid or expired OTP. Please request a new OTP."
       });
     }
 
-    // Update user as verified and clear OTP
-    user.isVerified = true;
-    user.otp = undefined;
-    user.otpExpires = undefined;
-    await user.save();
+    console.log('OTP verification successful for:', email);
+    console.log('User ready for registration completion');
 
+    // Return success - user can now complete registration
     return response.status(200).json({
       success: true,
-      message: "Email verified successfully",
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isVerified: user.isVerified
-      }
+      message: "OTP verified successfully. You can now complete your registration.",
+      email: email,
+      verified: true
     });
 
   } catch (error) {
     console.error('OTP verification error:', error);
     return response.status(500).json({
       success: false,
-      message: "Internal server error during OTP verification"
+      message: "Internal server error during OTP verification",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 }
