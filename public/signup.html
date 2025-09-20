@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - EduSpark</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .signup-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 450px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .signup-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo h1 {
+            color: #333;
+            font-size: 2.5em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo p {
+            color: #666;
+            margin-top: 5px;
+            font-size: 1.1em;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .email-input-group {
+            display: flex;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .email-input {
+            flex: 1;
+        }
+
+        .btn-send-otp {
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .btn-send-otp:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-send-otp:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .otp-section {
+            margin-top: 15px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 2px dashed #dee2e6;
+            display: none;
+        }
+
+        .otp-section.active {
+            display: block;
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .otp-section h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .otp-section p {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+
+        .btn-register {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .btn-register:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-register:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            display: none;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .role-selection {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .role-option {
+            position: relative;
+        }
+
+        .role-option input[type="radio"] {
+            display: none;
+        }
+
+        .role-option label {
+            display: block;
+            padding: 12px;
+            background: #f8f9fa;
+            border: 2px solid #e1e5e9;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .role-option input[type="radio"]:checked + label {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .countdown {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 480px) {
+            .signup-container {
+                padding: 30px 20px;
+                margin: 10px;
+            }
+            
+            .email-input-group {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .btn-send-otp {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="signup-container">
+        <div class="logo">
+            <h1>EduSpark</h1>
+            <p>Create your account</p>
+        </div>
+
+        <div class="alert" id="alert"></div>
+
+        <form id="signupForm">
+            <div class="form-group">
+                <label for="name">Full Name</label>
+                <input type="text" id="name" name="name" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <div class="email-input-group">
+                    <div class="email-input">
+                        <input type="email" id="email" name="email" class="form-control" required>
+                    </div>
+                    <button type="button" class="btn-send-otp" id="sendOtpBtn">Send OTP</button>
+                </div>
+            </div>
+
+            <div class="otp-section" id="otpSection">
+                <h3>📧 Email Verification</h3>
+                <p>We've sent a 6-digit OTP to your email. Enter it below to verify your email address.</p>
+                <div class="form-group">
+                    <label for="otp">Enter OTP</label>
+                    <input type="text" id="otp" name="otp" class="form-control" placeholder="123456" maxlength="6">
+                </div>
+                <p class="countdown" id="countdown"></p>
+            </div>
+
+            <div class="role-selection">
+                <div class="role-option">
+                    <input type="radio" id="student" name="role" value="student" checked>
+                    <label for="student">Student</label>
+                </div>
+                <div class="role-option">
+                    <input type="radio" id="teacher" name="role" value="teacher">
+                    <label for="teacher">Teacher</label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-control" required minlength="6">
+            </div>
+
+            <button type="submit" class="btn-register" id="registerBtn" disabled>
+                Create Account
+            </button>
+        </form>
+    </div>
+
+    <script>
+        let otpSent = false;
+        let countdownInterval = null;
+        let countdownSeconds = 0;
+
+        const emailInput = document.getElementById('email');
+        const sendOtpBtn = document.getElementById('sendOtpBtn');
+        const otpSection = document.getElementById('otpSection');
+        const otpInput = document.getElementById('otp');
+        const registerBtn = document.getElementById('registerBtn');
+        const signupForm = document.getElementById('signupForm');
+        const alert = document.getElementById('alert');
+
+        // Email validation
+        function isValidEmail(email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        }
+
+        // Show alert
+        function showAlert(message, type = 'info') {
+            alert.textContent = message;
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 5000);
+        }
+
+        // Start countdown
+        function startCountdown(seconds) {
+            countdownSeconds = seconds;
+            countdownInterval = setInterval(() => {
+                const minutes = Math.floor(countdownSeconds / 60);
+                const secs = countdownSeconds % 60;
+                document.getElementById('countdown').textContent = 
+                    `OTP expires in: ${minutes}:${secs.toString().padStart(2, '0')}`;
+                
+                if (countdownSeconds <= 0) {
+                    clearInterval(countdownInterval);
+                    otpSent = false;
+                    otpVerified = false;
+                    sendOtpBtn.disabled = false;
+                    sendOtpBtn.textContent = 'Send OTP';
+                    otpSection.classList.remove('active');
+                    showAlert('OTP has expired. Please request a new one.', 'error');
+                }
+                countdownSeconds--;
+            }, 1000);
+        }
+
+        // Send OTP
+        sendOtpBtn.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            
+            if (!email) {
+                showAlert('Please enter your email address.', 'error');
+                return;
+            }
+
+            if (!isValidEmail(email)) {
+                showAlert('Please enter a valid email address.', 'error');
+                return;
+            }
+
+            try {
+                sendOtpBtn.disabled = true;
+                sendOtpBtn.textContent = 'Sending...';
+
+                const response = await fetch('/api/users/send-otp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    otpSent = true;
+                    otpSection.classList.add('active');
+                    showAlert('OTP sent successfully! Check your email and enter the 6-digit code below.', 'success');
+                    startCountdown(600); // 10 minutes
+                    otpInput.focus(); // Focus on OTP input
+                } else {
+                    showAlert(data.message || 'Failed to send OTP. Please try again.', 'error');
+                    sendOtpBtn.disabled = false;
+                    sendOtpBtn.textContent = 'Send OTP';
+                }
+            } catch (error) {
+                showAlert('Network error. Please check your connection.', 'error');
+                sendOtpBtn.disabled = false;
+                sendOtpBtn.textContent = 'Send OTP';
+            }
+        });
+
+        let otpVerified = false;
+
+        // Verify OTP when 6 digits are entered
+        otpInput.addEventListener('input', async () => {
+            if (otpSent && otpInput.value.length === 6) {
+                // Verify OTP with backend
+                try {
+                    const response = await fetch('/api/users/verify', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ 
+                            email: emailInput.value.trim(),
+                            otp: otpInput.value 
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        otpVerified = true;
+                        registerBtn.disabled = false;
+                        showAlert('OTP verified successfully! You can now complete registration.', 'success');
+                    } else {
+                        otpVerified = false;
+                        registerBtn.disabled = true;
+                        showAlert(data.message || 'Invalid OTP. Please try again.', 'error');
+                    }
+                } catch (error) {
+                    otpVerified = false;
+                    registerBtn.disabled = true;
+                    showAlert('Network error. Please check your connection.', 'error');
+                }
+            } else {
+                otpVerified = false;
+                registerBtn.disabled = true;
+            }
+        });
+
+        // Form submission
+        signupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!otpSent) {
+                showAlert('Please send and verify OTP first.', 'error');
+                return;
+            }
+
+            if (!otpVerified) {
+                showAlert('Please verify your OTP first.', 'error');
+                return;
+            }
+
+            if (otpInput.value.length !== 6) {
+                showAlert('Please enter a valid 6-digit OTP.', 'error');
+                return;
+            }
+
+            const formData = new FormData(signupForm);
+            const userData = {
+                name: formData.get('name'),
+                email: formData.get('email'),
+                password: formData.get('password'),
+                role: formData.get('role'),
+                otp: formData.get('otp')
+            };
+
+            try {
+                registerBtn.disabled = true;
+                registerBtn.textContent = 'Creating Account...';
+
+                const response = await fetch('/api/users/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(userData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('Account created and email verified successfully! You can now login.', 'success');
+                    
+                    // Clear form
+                    signupForm.reset();
+                    otpSent = false;
+                    otpVerified = false;
+                    otpSection.classList.remove('active');
+                    
+                    // Redirect to login page after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 2000);
+                } else {
+                    showAlert(data.message || 'Registration failed. Please try again.', 'error');
+                    registerBtn.disabled = false;
+                    registerBtn.textContent = 'Create Account';
+                }
+            } catch (error) {
+                showAlert('Network error. Please check your connection.', 'error');
+                registerBtn.disabled = false;
+                registerBtn.textContent = 'Create Account';
+            }
+        });
+
+        // Clear countdown when page is hidden
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && countdownInterval) {
+                clearInterval(countdownInterval);
+            }
+        });
+    </script>
+</body>
+</html>
