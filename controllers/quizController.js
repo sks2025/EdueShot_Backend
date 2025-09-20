@@ -52,3 +52,5 @@ export const getQuizById = async (req, res) => {
         res.status(500).json({ message: "Error fetching quiz", error: error.message });
     }
 };
+
+

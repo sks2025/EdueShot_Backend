@@ -7,11 +7,13 @@ const router = express.Router();
 // Debug route to test if routes are working
 router.get('/test', (req, res) => {
   res.json({ message: 'Routes are working!', timestamp: new Date().toISOString() });
+  
 });
 
 // User routes
 router.post('/register', userController.register);
 router.post('/verify', userController.verifyOTP);
+router.post('/resend-otp', userController.resendOTP);
 router.post('/login', userController.login);
 
 // Protected profile routes (require authentication)
@@ -20,5 +22,8 @@ router.put('/update/:id', authenticateToken, userController.updateUserProfile);
 router.get('/profile', authenticateToken, userController.getMyProfile);
 router.put('/profile', authenticateToken, userController.updateProfile);
 router.delete('/delete/:id', authenticateToken, userController.deleteUserProfile);
+router.post('/forgot-password', userController.forgotPassword);
+router.post('/reset-password', userController.resetPassword);
+router.get('/all', userController.getAllUsers);
 
 export default router;

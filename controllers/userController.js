@@ -2,7 +2,7 @@ import User from '../Models/userModel.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import authenticateToken from '../Middleware/userAuth.js';
-// import { transporter } from '../Common/nodeMailer.js';
+import sendEmail from '../Common/nodeMailer.js';
 
 
 // Register user
@@ -53,56 +53,37 @@ const register = async (req, res) => {
       email,
       password: hashedPassword,
       role,
-      otp : otp,
-      otpExpires : otpExpires,
+      otp: otp,
+      otpExpires: otpExpires,
       isVerified: false
     });
 
     await user.save();
+    
+    const subject = "Verify Your Email – EduSpark";
+    const text = `Hello ${name},\n\nYour OTP for email verification is: ${otp}\n\nThis code is valid for 10 minutes.`;
+    const html = `
+      <h2>Hello ${name},</h2>
+      <p>Your OTP for email verification is:</p>
+      <h1 style="letter-spacing:3px;">${otp}</h1>
+      <p>This code is valid for <b>10 minutes</b>.</p>
+    `;
 
-      
+    await sendEmail(email, subject, text, html);
   
-      // Send verification email
-      // try {
-      //   const mailOptions = {
-      //     from: process.env.SENDER_EMAIL,
-      //     to: email,
-      //     subject: 'Welcome! Verify Your Account',
-      //     html: `
-      //       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      //         <h2 style="color: #333;">Welcome to our platform!</h2>
-      //          <p>Your account has been created successfully with name: <strong>${name}</strong></p>
-      //         <p>Please verify your email address using the OTP below:</p>
-      //         <div style="background-color: #f4f4f4; padding: 20px; text-align: center; margin: 20px 0;">
-      //           <h1 style="color: #007bff; font-size: 32px; margin: 0;">${otp}</h1>
-      //         </div>
-      //         <p style="color: #666;">This OTP will expire in 10 minutes.</p>
-      //         <p>If you didn't create this account, please ignore this email.</p>
-      //       </div>
-      //     `
-      //   };
-  
-      //   await transporter.sendMail(mailOptions);
-      // } catch (emailError) {
-      //   console.error('Email sending failed:', emailError);
-      //   // Don't fail registration if email fails
-      // }
-  
-       // Remove sensitive data from response
-       const userResponse = {
-         _id: user._id,
-         name: user.name,
-         email: user.email,
-         isVerified: user.isVerified,
-         createdAt: user.createdAt
-       };
-   
-       return res.status(201).json({ 
-         success: true, 
-         message: "User registered successfully. Please check your email for verification OTP.",
-         user: userResponse,
-         
-       });
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt
+    };
+
+    return res.status(201).json({ 
+      success: true, 
+      message: "User registered successfully. Please check your email for verification OTP.",
+      user: userResponse,
+    });
   
     } catch (error) {
       console.error('Registration error:', error);
@@ -169,7 +150,7 @@ const login = async (req, res) => {
   }
 };
 
- const verifyOTP= async (request, response)=> {
+const verifyOTP = async (request, response) => {
   try {
     const { email, otp } = request.body;
 
@@ -220,6 +201,84 @@ const login = async (req, res) => {
 }
 // OTP functions removed - no longer needed
 
+const resendOTP = async (req, res) => {
+  try {
+    console.log('Resend OTP request received:', req.body);
+    
+    const { email } = req.body;
+
+    // Validation
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email is required' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      console.log('User not found for resend OTP:', email);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found with this email address' 
+      });
+    }
+
+    // Check if user is already verified
+    if (user.isVerified) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User is already verified' 
+      });
+    }
+    
+    // Generate new OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    
+    console.log('Generated new OTP for resend:', email, ':', otp);
+    console.log('OTP expires at:', otpExpires);
+
+    // Update user with new OTP
+    user.otp = otp;
+    user.otpExpires = otpExpires;
+    await user.save();
+
+    // TODO: Uncomment when email service is ready
+    // await sendOtpEmail(email, otp, {
+    //   subject: 'Verify your account (resend OTP)',
+    //   text: `Your OTP is: ${otp}. It is valid for 10 minutes.`,
+    //   html: `<p>Your OTP is: <b>${otp}</b></p><p>It is valid for 10 minutes.</p>`
+    // });
+
+    console.log('Resend OTP saved for user:', email);
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'OTP resent to your email address',
+      // In development, you might want to include the OTP for testing
+      ...(process.env.NODE_ENV === 'development' && { otp: otp })
+    });
+
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error during OTP resend',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
 // Get user profile by ID (public route)
 const getProfile = async (req, res) => {
   try {
@@ -428,7 +487,150 @@ const updateUserProfile = async (req, res) => {
   }
 };
 
+//for forgot password
+const forgotPassword = async (req, res) => {
+  try {
+    console.log('Forgot password request received:', req.body);
 
+    const { email } = req.body;
+
+    // Validation
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      console.log('User not found for email:', email);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found with this email address'
+      });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    
+    console.log('Generated OTP for password reset:', email, ':', otp);
+    console.log('OTP expires at:', otpExpires);
+
+    // Update user with OTP
+    user.otp = otp;
+    user.otpExpires = otpExpires;
+    await user.save();
+
+    // TODO: Uncomment when email service is ready
+    // await sendOtpEmail(email, otp, {
+    //   subject: 'Password Reset OTP',
+    //   text: `Your password reset OTP is: ${otp}. It is valid for 10 minutes.`,
+    //   html: `<p>Your password reset OTP is: <b>${otp}</b></p><p>It is valid for 10 minutes.</p>`
+    // });
+
+    console.log('Password reset OTP saved for user:', email);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset OTP sent to your email address',
+      // In development, you might want to include the OTP for testing
+      ...(process.env.NODE_ENV === 'development' && { otp: otp })
+    });
+
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error during password reset',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
+
+const resetPassword = async (req, res) => {
+  try {
+    console.log('Reset password request received:', req.body);
+    
+    const { email, otp, newPassword } = req.body;
+    
+    // Validation
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email, OTP, and new password are required' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Validate password length
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      console.log('User not found for password reset:', email);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found with this email address' 
+      });
+    }
+
+    // Verify OTP
+    if (user.otp !== otp || user.otpExpires < new Date()) {
+      console.log('Invalid or expired OTP for user:', email);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or expired OTP' 
+      });
+    }
+
+    // Hash new password and clear OTP
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.otp = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    console.log('Password reset successful for user:', email);
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Password reset successful' 
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error during password reset',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
 //delete user profile
 const deleteUserProfile = async (req, res) => {
   try {
@@ -444,14 +646,29 @@ const deleteUserProfile = async (req, res) => {
   }
 }
 
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error during users retrieval' });
+  }
+}
+
+
 
 export default {
   register,
   verifyOTP,
+  resendOTP,
   login,
   getProfile,
   getMyProfile,
   updateProfile,
   updateUserProfile,
-  deleteUserProfile
+  deleteUserProfile,
+  getAllUsers,
+  forgotPassword,
+  resetPassword
 };

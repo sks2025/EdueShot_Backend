@@ -12,7 +12,7 @@ import quizRoutes from './routes/quizRoutes.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = 3002;
 const dbURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/edu-spark';
 
 // Middleware

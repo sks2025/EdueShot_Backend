@@ -1,25 +1,34 @@
 import nodemailer from 'nodemailer';
-import dotenv from 'dotenv';
 
-
-dotenv.config();
-
-export const transporter = nodemailer.createTransport({
-     host: "smtp-relay.brevo.com",
-     port: 587,
-     secure: false, // true for 465, false for other ports
-     auth: {
-       user: process.env.SMTP_USER,
-       pass: process.env.SMTP_PASS,
-     }
+// ✅ Direct use (for quick testing ONLY – not for production)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    secure: true,   // use SSL
+    port: 465,
+    auth: {
+        user: 'aman367787@gmail.com',       // Gmail address
+        pass: 'zhtm lmla tiep jgnc',        // 16-character Gmail App Password
+    },
 });
 
-// Verify transporter configuration
-transporter.verify(function(error, success) {
-  if (error) {
-    console.error('SMTP Configuration Error:', error);
-  } else {
-    console.log('SMTP Server is ready to send emails');
-  }
-});
+// ✅ Function to send email
+const sendEmail = async (to, subject, text, html = null) => {
+    try {
+        const mailOptions = {
+            from: 'aman367787@gmail.com',   // sender address
+            to,                             // recipient(s)
+            subject,
+            text,
+            html: html || text
+        };
 
+        const info = await transporter.sendMail(mailOptions);
+        console.log('✅ Email sent:', info.messageId);
+        return info;
+    } catch (error) {
+        console.error('❌ Error sending email:', error);
+        throw error;
+    }
+};
+
+export default sendEmail;
