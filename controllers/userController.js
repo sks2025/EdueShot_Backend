@@ -53,6 +53,10 @@ const register = async (req, res) => {
         });
       }
 
+      console.log('Found pending user for registration:', email);
+      console.log('Pending user OTP:', pendingUser.otp);
+      console.log('Provided OTP:', otp);
+
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -65,6 +69,13 @@ const register = async (req, res) => {
       pendingUser.otpExpires = undefined;
       
       await pendingUser.save();
+      
+      // Verify the user was saved correctly
+      const savedUser = await User.findById(pendingUser._id);
+      console.log('User registration completed and verified:', email);
+      console.log('User isVerified status in memory:', pendingUser.isVerified);
+      console.log('User isVerified status in database:', savedUser.isVerified);
+      console.log('User saved successfully:', !!savedUser);
 
       const userResponse = {
         _id: pendingUser._id,
@@ -145,6 +156,8 @@ const sendOtp = async (req, res) => {
       pendingUser.otpExpires = otpExpires;
       await pendingUser.save();
       console.log('Updated existing pending user with new OTP');
+      console.log('Updated user ID:', pendingUser._id);
+      console.log('Updated user isVerified:', pendingUser.isVerified);
     } else {
       // Create new pending user for email verification
       pendingUser = new User({
@@ -155,6 +168,8 @@ const sendOtp = async (req, res) => {
       });
       await pendingUser.save();
       console.log('Created new pending user for email verification');
+      console.log('New user ID:', pendingUser._id);
+      console.log('New user isVerified:', pendingUser.isVerified);
     }
 
     // 6️⃣ Send OTP email
