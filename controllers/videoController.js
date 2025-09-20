@@ -3,7 +3,7 @@ import Video from '../Models/videoModel.js';
 const uploadVideo = async (req, res) => {
   try {
     
-
+console.log('Upload video request received:', req.body);
     // Multer stores files in req.files
     const videoFile = req.files?.video?.[0];
     const thumbFile = req.files?.thumbnail?.[0];
