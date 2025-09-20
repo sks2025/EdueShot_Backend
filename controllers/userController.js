@@ -209,12 +209,29 @@ const sendOtp = async (req, res) => {
 
   
 
-// Login user
+// Login user - Only verified users allowed
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({
@@ -223,29 +240,34 @@ const login = async (req, res) => {
       });
     }
 
-    // Check if user is verified
+    // CRITICAL: Check if user is verified - Only verified users can login
     if (!user.isVerified) {
-      return res.status(401).json({
+      console.log('Login attempt by unverified user:', email);
+      return res.status(403).json({
         success: false,
-        message: 'Please verify your email before logging in. Check your email for OTP.'
+        message: 'Email verification required. Please complete your registration by verifying your email address.',
+        requiresVerification: true
       });
     }
 
     // Check password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
+      console.log('Invalid password attempt for user:', email);
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
       });
     }
 
-    // Generate JWT token
+    // Generate JWT token for verified user
     const token = jwt.sign(
       { userId: user._id, email: user.email, role: user.role },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '24h' }
     );
+
+    console.log('Successful login for verified user:', email);
 
     res.json({
       success: true,
@@ -255,7 +277,8 @@ const login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        isVerified: user.isVerified
       }
     });
 
@@ -263,7 +286,8 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error during login'
+      message: 'Internal server error during login',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
