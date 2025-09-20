@@ -23,10 +23,10 @@ const sendEmail = async (to, subject, text, html = null) => {
         };
 
         const info = await transporter.sendMail(mailOptions);
-        console.log('✅ Email sent:', info.messageId);
+       
         return info;
     } catch (error) {
-        console.error('❌ Error sending email:', error);
+      
         throw error;
     }
 };
