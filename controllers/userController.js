@@ -816,6 +816,30 @@ const forgotPassword = async (req, res) => {
   }
 }
 
+// const verifyPasswordResetOTP = async (req, res) => {
+//   try {
+//     const {otp } = req.body;
+//     const user = await User.findOne({ otp });
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'User not found with this OTP'
+//       });
+//     }
+//     return res.status(200).json({
+//       success: true,
+//       message: 'OTP verified successfully'
+//     });
+//   } catch (error) {
+//     console.error('Verify password reset OTP error:', error);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Internal server error during password reset OTP verification',
+//       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//     });
+//   }
+// }
+
 const resetPassword = async (req, res) => {
   try {
     console.log('Reset password request received:', req.body);
