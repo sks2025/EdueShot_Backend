@@ -36,40 +36,30 @@ const register = async (req, res) => {
       });
     }
 
-    // Generate OTP for email verification
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    
-    console.log('Generated OTP for', email, ':', otp);
-    console.log('OTP expires at:', otpExpires);
-
     // Hash password
-
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
+    // Create user (automatically verified since no OTP system)
     const user = new User({
       name,
       email,
       password: hashedPassword,
       role,
-      otp: otp,
-      otpExpires: otpExpires,
-      isVerified: false
+      isVerified: true
     });
 
     await user.save();
-    
-    const subject = "Verify Your Email – EduSpark";
-    const text = `Hello ${name},\n\nYour OTP for email verification is: ${otp}\n\nThis code is valid for 10 minutes.`;
-    const html = `
-      <h2>Hello ${name},</h2>
-      <p>Your OTP for email verification is:</p>
-      <h1 style="letter-spacing:3px;">${otp}</h1>
-      <p>This code is valid for <b>10 minutes</b>.</p>
-    `;
 
-    await sendEmail(email, subject, text, html);
+    // const subject = "Verify Your Email – EduSpark";
+    // const text = `Hello ${name},\n\nYour OTP for email verification is: ${otp}\n\nThis code is valid for 10 minutes.`;
+    // const html = `
+    //   <h2>Hello ${name},</h2>
+    //   <p>Your OTP for email verification is:</p>
+    //   <h1 style="letter-spacing:3px;">${otp}</h1>
+    //   <p>This code is valid for <b>10 minutes</b>.</p>
+    // `;
+
+    // await sendEmail(email, subject, text, html);
   
     const userResponse = {
       _id: user._id,
@@ -94,6 +84,73 @@ const register = async (req, res) => {
       });
     }
   }
+
+
+//send otp
+const sendOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // 1️⃣ Validate input
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required"
+      });
+    }
+
+    // 2️⃣ Check if user exists
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email"
+      });
+    }
+
+    // Optional: If user is already verified, block sending OTP
+    if (user.isVerified) {
+      return res.status(400).json({
+        success: false,
+        message: "This email is already verified"
+      });
+    }
+
+    // 3️⃣ Generate a new OTP (valid for 10 minutes)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Update user with new OTP
+    user.otp = otp;
+    user.otpExpires = otpExpires;
+    await user.save();
+
+    // 4️⃣ Send OTP email
+    const subject = "Your OTP Code – EduSpark";
+    const text = `Hello ${user.name},\n\nYour new OTP for email verification is: ${otp}\n\nThis code will expire in 10 minutes.`;
+    const html = `
+      <h2>Hello ${user.name},</h2>
+      <p>Your new OTP for email verification is:</p>
+      <h1 style="letter-spacing:3px;">${otp}</h1>
+      <p>This code is valid for <b>10 minutes</b>.</p>
+    `;
+
+    await sendEmail(email, subject, text, html);
+
+    return res.status(200).json({
+      success: true,
+      message: "A new OTP has been sent to your email address"
+    });
+
+  } catch (error) {
+    console.error("Send OTP error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while sending OTP",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
 
   
 
@@ -670,5 +727,6 @@ export default {
   deleteUserProfile,
   getAllUsers,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  sendOtp
 };
