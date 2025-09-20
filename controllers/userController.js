@@ -76,6 +76,19 @@ const register = async (req, res) => {
       console.log('User isVerified status in memory:', pendingUser.isVerified);
       console.log('User isVerified status in database:', savedUser.isVerified);
       console.log('User saved successfully:', !!savedUser);
+      
+      // Security: Ensure OTP fields are cleared for verified users
+      if (savedUser && savedUser.isVerified) {
+        console.log('🔒 Security: Ensuring OTP fields are cleared for verified user');
+        if (savedUser.otp || savedUser.otpExpires) {
+          console.log('⚠️ Warning: OTP fields still exist for verified user, clearing them...');
+          await User.findByIdAndUpdate(savedUser._id, {
+            otp: undefined,
+            otpExpires: undefined
+          });
+          console.log('✅ OTP fields cleared for verified user');
+        }
+      }
 
       const userResponse = {
         _id: pendingUser._id,
@@ -131,13 +144,50 @@ const sendOtp = async (req, res) => {
       });
     }
 
-    // 3️⃣ Check if user already exists and is verified
+    // 3️⃣ CRITICAL: Check if user already exists and is verified - NO OTP for verified users
     const existingVerifiedUser = await User.findOne({ email, isVerified: true });
     if (existingVerifiedUser) {
+      console.log('🚫 OTP request BLOCKED for verified user:', email);
+      console.log('✅ Verified user details:', {
+        id: existingVerifiedUser._id,
+        name: existingVerifiedUser.name,
+        email: existingVerifiedUser.email,
+        isVerified: existingVerifiedUser.isVerified,
+        createdAt: existingVerifiedUser.createdAt,
+        verifiedAt: existingVerifiedUser.updatedAt
+      });
+      console.log('🔒 Security: Verified users cannot request OTP for verification');
+      
       return res.status(400).json({
         success: false,
-        message: "User already exists with this email. Please use login instead."
+        message: "This email is already verified and registered. OTP verification is not needed. Please use login instead.",
+        userExists: true,
+        isVerified: true,
+        reason: "User already verified - OTP not allowed"
       });
+    }
+
+    // Additional security check - Find any user with this email
+    const anyExistingUser = await User.findOne({ email });
+    if (anyExistingUser) {
+      console.log('🔍 Found existing user for email:', email);
+      console.log('📊 User status:', {
+        id: anyExistingUser._id,
+        isVerified: anyExistingUser.isVerified,
+        hasOTP: !!anyExistingUser.otp,
+        otpExpires: anyExistingUser.otpExpires
+      });
+      
+      if (anyExistingUser.isVerified) {
+        console.log('🚫 SECONDARY CHECK: User is verified - blocking OTP request');
+        return res.status(400).json({
+          success: false,
+          message: "This email is already registered and verified. Please use login instead.",
+          userExists: true,
+          isVerified: true,
+          reason: "User already verified - OTP not allowed"
+        });
+      }
     }
 
     // 4️⃣ Generate a new OTP (valid for 10 minutes)
@@ -388,11 +438,24 @@ const resendOTP = async (req, res) => {
       });
     }
 
-    // Check if user is already verified
+    // Check if user is already verified - NO OTP resend for verified users
     if (user.isVerified) {
+      console.log('🚫 Resend OTP request BLOCKED for verified user:', email);
+      console.log('✅ Verified user details:', {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        isVerified: user.isVerified,
+        verifiedAt: user.updatedAt
+      });
+      console.log('🔒 Security: Verified users cannot resend OTP for verification');
+      
       return res.status(400).json({ 
         success: false, 
-        message: 'User is already verified' 
+        message: 'User is already verified. OTP resend is not allowed for verified users.',
+        userExists: true,
+        isVerified: true,
+        reason: "User already verified - OTP resend not allowed"
       });
     }
     
@@ -675,24 +738,64 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    // Generate OTP
+    // Check if user is verified - Only verified users can reset password
+    if (!user.isVerified) {
+      console.log('Password reset request from unverified user:', email);
+      return res.status(403).json({
+        success: false,
+        message: 'Account not verified. Please complete your email verification first before resetting password.',
+        requiresVerification: true
+      });
+    }
+
+    // Generate OTP for password reset
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     
-    console.log('Generated OTP for password reset:', email, ':', otp);
-    console.log('OTP expires at:', otpExpires);
+    console.log('🔐 Generated OTP for password reset:', email, ':', otp);
+    console.log('⏰ OTP expires at:', otpExpires);
+    console.log('✅ User is verified, proceeding with password reset OTP');
 
     // Update user with OTP
     user.otp = otp;
     user.otpExpires = otpExpires;
     await user.save();
 
-    // TODO: Uncomment when email service is ready
-    // await sendOtpEmail(email, otp, {
-    //   subject: 'Password Reset OTP',
-    //   text: `Your password reset OTP is: ${otp}. It is valid for 10 minutes.`,
-    //   html: `<p>Your password reset OTP is: <b>${otp}</b></p><p>It is valid for 10 minutes.</p>`
-    // });
+    // Send password reset OTP email
+    const subject = "EduSpark - Password Reset OTP";
+    const text = `Password Reset Request\n\nYour OTP for password reset is: ${otp}\n\nThis code will expire in 10 minutes.\n\nIf you didn't request a password reset, please ignore this email.\n\nBest regards,\nEduSpark Team`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #667eea; margin: 0;">EduSpark</h1>
+        </div>
+        
+        <h2 style="color: #333;">Password Reset Request</h2>
+        <p>We received a request to reset your password. Use the OTP below to complete the password reset:</p>
+        
+        <div style="background: linear-gradient(135deg, #667eea, #764ba2); padding: 25px; text-align: center; margin: 25px 0; border-radius: 12px;">
+          <h1 style="letter-spacing: 8px; color: white; margin: 0; font-size: 2.5em;">${otp}</h1>
+        </div>
+        
+        <p><strong>Important:</strong></p>
+        <ul style="color: #555;">
+          <li>This code is valid for <strong>10 minutes</strong></li>
+          <li>Enter this OTP to complete your password reset</li>
+          <li>Do not share this code with anyone</li>
+        </ul>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+        <p style="color: #666; font-size: 12px; text-align: center;">
+          If you didn't request a password reset, please ignore this email.<br>
+          This is an automated message, please do not reply.
+        </p>
+      </div>
+    `;
+    
+    console.log('Attempting to send password reset email to:', email);
+    await sendEmail(email, subject, text, html);
+    console.log('Password reset email sent successfully to:', email);
+  
 
     console.log('Password reset OTP saved for user:', email);
 
