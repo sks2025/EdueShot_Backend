@@ -13,6 +13,7 @@ router.get('/test', (req, res) => {
 // User routes
 router.post('/register', userController.register);
 router.post('/verify', userController.verifyOTP);
+router.post('/send-otp', userController.sendOtp);
 router.post('/resend-otp', userController.resendOTP);
 router.post('/login', userController.login);
 
