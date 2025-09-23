@@ -1,16 +1,11 @@
 import Video from '../Models/videoModel.js';
+import fs from 'fs';
+import path from 'path';
 
 const uploadVideo = async (req, res) => {
   try {
-
-
-
-  return res.status(200).json({
-    success: true,
-    message: 'Upload video request received'
-  });
+    console.log('Upload video request received:', req.body);
     
-console.log('Upload video request received:', req.body);
     // Multer stores files in req.files
     const videoFile = req.files?.video?.[0];
     const thumbFile = req.files?.thumbnail?.[0];
@@ -33,8 +28,8 @@ console.log('Upload video request received:', req.body);
       contentType,
       category: category ? category.split(',') : [], // if array comes as CSV
       customCategory,
-      videoUrl: videoFile.path,
-      thumbnailUrl: thumbFile ? thumbFile.path : null,
+      videoUrl: `/uploads/${videoFile.filename}`,
+      thumbnailUrl: thumbFile ? `/uploads/${thumbFile.filename}` : null,
       uploadedBy: req.user.userId // from authenticate middleware (JWT contains userId, not _id)
     });
 
@@ -44,7 +39,7 @@ console.log('Upload video request received:', req.body);
     
     res.status(201).json({ message: 'Video uploaded successfully', video: newVideo });
   } catch (err) {
-   
+    console.error('Upload video error:', err);
     res.status(500).json({ error: 'Failed to upload video', details: err.message });
   }
 };
@@ -93,6 +88,60 @@ const getMyVideos = async (req, res) => {
 };
 
 
+const streamVideo = async (req, res) => {
+  try {
+    const videoId = req.params.id;
+    const video = await Video.findById(videoId);
+    
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    const videoPath = path.join(process.cwd(), video.videoUrl);
+    
+    // Check if file exists
+    if (!fs.existsSync(videoPath)) {
+      return res.status(404).json({ error: 'Video file not found on server' });
+    }
+
+    const stat = fs.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+      // Partial content request (for video seeking)
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = (end - start) + 1;
+      const file = fs.createReadStream(videoPath, { start, end });
+      const head = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': 'video/mp4',
+      };
+      res.writeHead(206, head);
+      file.pipe(res);
+    } else {
+      // Full video request
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': 'video/mp4',
+      };
+      res.writeHead(200, head);
+      fs.createReadStream(videoPath).pipe(res);
+    }
+  } catch (err) {
+    console.error('Stream video error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to stream video',
+      details: err.message 
+    });
+  }
+};
+
 const deleteVideo = async (req, res) => {
   try {
     const videoId = req.params.id;
@@ -111,7 +160,21 @@ const deleteVideo = async (req, res) => {
       });
     }
 
-    // Delete the video
+    // Delete the video file from filesystem
+    const videoPath = path.join(process.cwd(), video.videoUrl);
+    if (fs.existsSync(videoPath)) {
+      fs.unlinkSync(videoPath);
+    }
+
+    // Delete thumbnail if exists
+    if (video.thumbnailUrl) {
+      const thumbPath = path.join(process.cwd(), video.thumbnailUrl);
+      if (fs.existsSync(thumbPath)) {
+        fs.unlinkSync(thumbPath);
+      }
+    }
+
+    // Delete the video record from database
     await Video.findByIdAndDelete(videoId);
     
     res.json({ 
@@ -130,10 +193,70 @@ const deleteVideo = async (req, res) => {
 
 
 
+//like video
+// PUT /api/videos/:id/like
+const likeVideo = async (req, res) => {
+  try {
+    const { id } = req.params;       // Video ID from URL
+    const userId = req.user.userId;  // User ID from auth middleware (JWT contains userId)
+
+    const video = await Video.findById(id);
+    if (!video) return res.status(404).json({ success: false, message: "Video not found" });
+
+    const alreadyLiked = video.likedBy.includes(userId);
+
+    if (alreadyLiked) {
+      // 👎 Unlike
+      video.likes -= 1;
+      video.likedBy.pull(userId);
+      await video.save();
+      return res.json({ success: true, message: "Unliked", likes: video.likes });
+    } else {
+      // 👍 Like
+      video.likes += 1;
+      video.likedBy.push(userId);
+      await video.save();
+      return res.json({ success: true, message: "Liked", likes: video.likes });
+    }
+
+  } catch (err) {
+    console.error('Like video error:', err);
+    res.status(500).json({ success: false, message: "Server error", details: err.message });
+  }
+};
+
+
+//get liked videos
+// GET /api/videos/:id/likes
+const getLikes = async (req, res) => {
+  try {
+    const { id } = req.params; // Video ID from URL
+    const video = await Video.findById(id).select('likes'); // only return likes field
+
+    if (!video) {
+      return res.status(404).json({ success: false, message: "Video not found" });
+    }
+
+    res.json({
+      success: true,
+      videoId: id,
+      likes: video.likes
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+
 export default {
   uploadVideo,
   getAllVideos,
   getVideoById,
   getMyVideos,
-  deleteVideo
+  streamVideo,
+  deleteVideo,
+  likeVideo,
+  getLikes
 };

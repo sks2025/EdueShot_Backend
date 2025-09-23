@@ -8,6 +8,8 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ['teacher', 'student'], required: function() { return this.isVerified === true; } },
     otp: { type: String },
     otpExpires: { type: Date },
+    forgotPasswordOtp: { type: String },
+    forgotPasswordExpiry: { type: Date },
     isVerified: { type: Boolean, default: false }
   },
   { timestamps: true }

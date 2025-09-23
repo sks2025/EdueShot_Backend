@@ -24,7 +24,9 @@ router.get('/profile', authenticateToken, userController.getMyProfile);
 router.put('/profile', authenticateToken, userController.updateProfile);
 router.delete('/delete/:id', authenticateToken, userController.deleteUserProfile);
 router.post('/forgot-password', userController.forgotPassword);
+router.post('/verify-password-reset-otp', userController.verifyPasswordResetOTP);
 router.post('/reset-password', userController.resetPassword);
 router.get('/all', userController.getAllUsers);
+
 
 export default router;

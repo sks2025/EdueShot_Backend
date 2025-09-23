@@ -23,6 +23,9 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from public directory
 app.use(express.static('public'));
 
+// Serve uploaded files from uploads directory
+app.use('/uploads', express.static('uploads'));
+
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/videos', videoRoutes);
