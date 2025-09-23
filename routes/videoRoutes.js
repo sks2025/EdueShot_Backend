@@ -15,9 +15,11 @@ router.post(
 
 router.get('/videos', VideoController.getAllVideos);
 router.get('/videos/:id', VideoController.getVideoById);
+router.get('/videos/:id/stream', VideoController.streamVideo);
 router.get('/my-videos', authenticate, VideoController.getMyVideos);
 router.delete('/videos/:id', authenticate, VideoController.deleteVideo);
-
+router.put('/videos/:id/like', authenticate, VideoController.likeVideo);
+router.get('/videos/:id/likes', VideoController.getLikes);
 
 
 export default router;
