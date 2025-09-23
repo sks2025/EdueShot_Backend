@@ -920,8 +920,10 @@ const verifyPasswordResetOTP = async (req, res) => {
 const resetPassword = async (req, res) => {
   try {
     console.log('Reset password request received:', req.body);
+    console.log('Request headers:', req.headers);
     
     const { email, newPassword, confirmPassword } = req.body;
+    console.log('Extracted data:', { email, newPassword: newPassword ? '[HIDDEN]' : undefined, confirmPassword: confirmPassword ? '[HIDDEN]' : undefined });
 
     // Validation
     if (!email || !newPassword || !confirmPassword) {
@@ -975,13 +977,22 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // SECURITY: Check if user has verified OTP (fields should be empty strings)
-    if (user.forgotPasswordOtp !== "" || user.forgotPasswordExpiry !== "") {
-      console.log('Password reset attempt without OTP verification for user:', email);
-      return res.status(400).json({
-        success: false,
-        message: 'Please verify OTP first before resetting password'
-      });
+    // SECURITY: Check if user has a valid forgot password OTP that hasn't been verified yet
+    // If OTP exists and hasn't expired, user needs to verify it first
+    if (user.forgotPasswordOtp && user.forgotPasswordOtp !== "" && user.forgotPasswordExpiry) {
+      const currentTime = new Date();
+      if (user.forgotPasswordExpiry > currentTime) {
+        console.log('Password reset attempt without OTP verification for user:', email);
+        console.log('User OTP status:', {
+          forgotPasswordOtp: user.forgotPasswordOtp,
+          forgotPasswordExpiry: user.forgotPasswordExpiry,
+          isExpired: user.forgotPasswordExpiry <= currentTime
+        });
+        return res.status(400).json({
+          success: false,
+          message: 'Please verify OTP first before resetting password'
+        });
+      }
     }
 
     // Hash new password
@@ -1006,6 +1017,11 @@ const resetPassword = async (req, res) => {
 
   } catch (error) {
     console.error('Reset password error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     return res.status(500).json({
       success: false,
       message: 'Internal server error during password reset',
