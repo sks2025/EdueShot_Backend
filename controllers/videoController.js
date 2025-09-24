@@ -2,6 +2,23 @@ import Video from '../Models/videoModel.js';
 import fs from 'fs';
 import path from 'path';
 
+// Helper function to generate full URL for uploaded files
+const generateFileUrl = (filename) => {
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3002';
+  return `${baseUrl}/uploads/${filename}`;
+};
+
+// Helper function to ensure URL is full (for backward compatibility)
+const ensureFullUrl = (url) => {
+  if (!url) return null;
+  if (url.startsWith('http')) return url; // Already full URL
+  if (url.startsWith('/uploads/')) {
+    const filename = url.replace('/uploads/', '');
+    return generateFileUrl(filename);
+  }
+  return generateFileUrl(url);
+};
+
 const uploadVideo = async (req, res) => {
   try {
     console.log('Upload video request received:', req.body);
@@ -28,8 +45,8 @@ const uploadVideo = async (req, res) => {
       contentType,
       category: category ? category.split(',') : [], // if array comes as CSV
       customCategory,
-      videoUrl: `/uploads/${videoFile.filename}`,
-      thumbnailUrl: thumbFile ? `/uploads/${thumbFile.filename}` : null,
+      videoUrl: generateFileUrl(videoFile.filename),
+      thumbnailUrl: thumbFile ? generateFileUrl(thumbFile.filename) : null,
       uploadedBy: req.user.userId // from authenticate middleware (JWT contains userId, not _id)
     });
 
@@ -47,7 +64,15 @@ const uploadVideo = async (req, res) => {
 const getAllVideos = async (req, res) => {
   try {
     const videos = await Video.find().populate('uploadedBy', 'name email');
-    res.json(videos);
+    
+    // Ensure all URLs are full URLs
+    const videosWithFullUrls = videos.map(video => ({
+      ...video.toObject(),
+      videoUrl: ensureFullUrl(video.videoUrl),
+      thumbnailUrl: ensureFullUrl(video.thumbnailUrl)
+    }));
+    
+    res.json(videosWithFullUrls);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch videos' });
@@ -58,7 +83,15 @@ const getVideoById = async (req, res) => {
   try {
     const video = await Video.findById(req.params.id).populate('uploadedBy', 'name email');
     if (!video) return res.status(404).json({ error: 'Video not found' });
-    res.json(video);
+    
+    // Ensure URLs are full URLs
+    const videoWithFullUrls = {
+      ...video.toObject(),
+      videoUrl: ensureFullUrl(video.videoUrl),
+      thumbnailUrl: ensureFullUrl(video.thumbnailUrl)
+    };
+    
+    res.json(videoWithFullUrls);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch video' });
@@ -72,10 +105,17 @@ const getMyVideos = async (req, res) => {
       .populate('uploadedBy', 'name email')
       .sort({ createdAt: -1 }); // Latest first
     
+    // Ensure all URLs are full URLs
+    const videosWithFullUrls = videos.map(video => ({
+      ...video.toObject(),
+      videoUrl: ensureFullUrl(video.videoUrl),
+      thumbnailUrl: ensureFullUrl(video.thumbnailUrl)
+    }));
+    
     res.json({
       success: true,
-      count: videos.length,
-      videos
+      count: videosWithFullUrls.length,
+      videos: videosWithFullUrls
     });
   } catch (err) {
     console.error('Get my videos error:', err);
@@ -97,7 +137,12 @@ const streamVideo = async (req, res) => {
       return res.status(404).json({ error: 'Video not found' });
     }
 
-    const videoPath = path.join(process.cwd(), video.videoUrl);
+    // Extract filename from full URL or relative path
+    const filename = video.videoUrl.includes('/uploads/') 
+      ? video.videoUrl.split('/uploads/')[1] 
+      : video.videoUrl.replace('/uploads/', '');
+    
+    const videoPath = path.join(process.cwd(), 'uploads', filename);
     
     // Check if file exists
     if (!fs.existsSync(videoPath)) {
@@ -161,14 +206,20 @@ const deleteVideo = async (req, res) => {
     }
 
     // Delete the video file from filesystem
-    const videoPath = path.join(process.cwd(), video.videoUrl);
+    const videoFilename = video.videoUrl.includes('/uploads/') 
+      ? video.videoUrl.split('/uploads/')[1] 
+      : video.videoUrl.replace('/uploads/', '');
+    const videoPath = path.join(process.cwd(), 'uploads', videoFilename);
     if (fs.existsSync(videoPath)) {
       fs.unlinkSync(videoPath);
     }
 
     // Delete thumbnail if exists
     if (video.thumbnailUrl) {
-      const thumbPath = path.join(process.cwd(), video.thumbnailUrl);
+      const thumbFilename = video.thumbnailUrl.includes('/uploads/') 
+        ? video.thumbnailUrl.split('/uploads/')[1] 
+        : video.thumbnailUrl.replace('/uploads/', '');
+      const thumbPath = path.join(process.cwd(), 'uploads', thumbFilename);
       if (fs.existsSync(thumbPath)) {
         fs.unlinkSync(thumbPath);
       }
