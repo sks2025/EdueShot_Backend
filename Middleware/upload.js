@@ -25,10 +25,10 @@ const upload = multer({
     const ext = path.extname(file.originalname).toLowerCase();
     console.log('📄 File extension:', ext);
     if (allowed.test(ext)) {
-      console.log('✅ File accepted');
+      console.log('File accepted');
       cb(null, true);
     } else {
-      console.log('❌ File rejected - invalid extension');
+      console.log('File rejected - invalid extension');
       cb(new Error('Only video/image files allowed!'));
     }
   }

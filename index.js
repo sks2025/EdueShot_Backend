@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import userRoutes from './routes/userRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
-
+import courseRoutes from './routes/courseRoutes.js';
 // Import routes
 
 // Load environment variables
@@ -24,12 +24,19 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Serve uploaded files from uploads directory
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static('uploads', {
+  setHeaders: (res, path) => {
+    console.log('📁 Serving static file:', path);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+  }
+}));
 
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/videos', videoRoutes);
 app.use('/api/quizzes', quizRoutes);
+app.use('/api/courses', courseRoutes);
 // Basic route
 app.get('/', (req, res) => {
   res.json({
@@ -49,14 +56,14 @@ app.get('/', (req, res) => {
 const connectDB = async () => {
   try {
     if (!dbURI) {
-      console.error('❌ MONGODB_URI is not defined in environment variables');
+      console.error('MONGODB_URI is not defined in environment variables');
       process.exit(1);
     }
     
     await mongoose.connect(dbURI);
-    console.log('✅ Connected to MongoDB successfully');
+    console.log('Connected to MongoDB successfully');
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error.message);
+    console.error('MongoDB connection error:', error.message);
     process.exit(1);
   }
 };
@@ -66,9 +73,9 @@ connectDB();
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-    console.log(`📱 API endpoint: http://localhost:${PORT}`);
-    console.log(`👥 Users API: http://localhost:${PORT}/api/users`);
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`API endpoint: http://localhost:${PORT}`);
+    console.log(`Users API: http://localhost:${PORT}/api/users`);
 });
 
 export default app;
