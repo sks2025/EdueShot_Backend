@@ -14,7 +14,7 @@ router.post(
 );
 
 router.get('/videos', VideoController.getAllVideos);
-router.get('/videos/:id', VideoController.getVideoById);
+router.get('/videos/:id', authenticateToken, VideoController.getVideoById);
 router.get('/videos/:id/stream', VideoController.streamVideo);
 router.get('/my-videos', authenticateToken, VideoController.getMyVideos);
 router.delete('/videos/:id', authenticateToken, VideoController.deleteVideo);
