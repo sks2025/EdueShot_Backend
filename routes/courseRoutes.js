@@ -2,6 +2,7 @@ import express from "express";
 import {
   createCourse,
   getCourses,
+  getCourseById,
   enrollCourse,
   updateCourse,
   deleteCourse,
@@ -17,6 +18,7 @@ router.post("/create", authenticateToken, createCourse);
 
 // anyone can view
 router.get("/", getCourses);
+router.get("/:courseId", getCourseById);
 
 // student enrolls
 router.post("/:courseId/enroll", authenticateToken, enrollCourse);

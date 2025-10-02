@@ -37,6 +37,49 @@ const quizSchema = new mongoose.Schema({
             message: "Quiz must contain at least one question."
         },
         required: true
+    },
+    // Quiz timing fields
+    startDate: { 
+        type: Date, 
+        required: true 
+    },
+    endDate: { 
+        type: Date, 
+        required: true 
+    },
+    startTime: { 
+        type: String, 
+        required: true,
+        validate: {
+            validator: function(v) {
+                // Validate time format (HH:MM)
+                return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+            },
+            message: "Start time must be in HH:MM format"
+        }
+    },
+    endTime: { 
+        type: String, 
+        required: true,
+        validate: {
+            validator: function(v) {
+                // Validate time format (HH:MM)
+                return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+            },
+            message: "End time must be in HH:MM format"
+        }
+    },
+    // Quiz status based on timing
+    status: {
+        type: String,
+        enum: ['scheduled', 'active', 'ended'],
+        default: 'scheduled'
+    },
+    // Total quiz duration in minutes (optional)
+    totalDuration: {
+        type: Number,
+        min: 1,
+        default: 60 // Default 60 minutes
     }
 }, { timestamps: true });
 
