@@ -10,12 +10,27 @@ const generateFileUrl = (filename) => {
 // Helper function to ensure URL is full (for backward compatibility)
 const ensureFullUrl = (url) => {
   if (!url) return null;
-  if (url.startsWith('http')) return url; // Already full URL
+  
+  console.log('🖼️ Processing thumbnail URL:', url);
+  
+  // Already full URL
+  if (url.startsWith('http')) {
+    console.log('✅ Already full URL:', url);
+    return url;
+  }
+  
+  // Handle /uploads/ prefix
   if (url.startsWith('/uploads/')) {
     const filename = url.replace('/uploads/', '');
-    return generateFileUrl(filename);
+    const fullUrl = generateFileUrl(filename);
+    console.log('✅ Generated full URL from /uploads/ path:', fullUrl);
+    return fullUrl;
   }
-  return generateFileUrl(url);
+  
+  // Handle direct filename
+  const fullUrl = generateFileUrl(url);
+  console.log('✅ Generated full URL from filename:', fullUrl);
+  return fullUrl;
 };
 
 // ✅ Create Course (only Teacher)
@@ -50,7 +65,7 @@ export const createCourse = async (req, res) => {
     const course = new Course({
       title,
       description,
-      thumbnail: generateFileUrl(thumbnail),
+      thumbnail: thumbnail, // Store the filename as-is, we'll process URLs when retrieving
       price,
       details,
       teacher: userId,
@@ -58,10 +73,16 @@ export const createCourse = async (req, res) => {
 
     await course.save();
 
+    // Convert course to object and ensure thumbnail has full URL
+    const courseWithFullUrl = {
+      ...course.toObject(),
+      thumbnail: ensureFullUrl(course.thumbnail)
+    };
+
     res.status(201).json({
       success: true,
       message: "Course created successfully",
-      course,
+      course: courseWithFullUrl,
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -84,6 +105,39 @@ export const getCourses = async (req, res) => {
     res.status(200).json({ success: true, courses: coursesWithFullUrls });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ Get Single Course by ID
+export const getCourseById = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const course = await Course.findById(courseId)
+      .populate("teacher", "name email")
+      .populate("students", "name email");
+
+    if (!course) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Course not found" 
+      });
+    }
+
+    // Ensure thumbnail URL is full URL
+    const courseWithFullUrl = {
+      ...course.toObject(),
+      thumbnail: ensureFullUrl(course.thumbnail)
+    };
+
+    res.status(200).json({ 
+      success: true, 
+      course: courseWithFullUrl 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };
 
