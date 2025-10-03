@@ -225,6 +225,97 @@ const streamVideo = async (req, res) => {
   }
 };
 
+// Stream all videos without requiring ID - perfect for video feed
+const streamAllVideos = async (req, res) => {
+  try {
+    console.log('📱 Stream all videos request received');
+    
+    // Get query parameters for filtering
+    const contentType = req.query.type; // 'reel' or 'full'
+    const limit = parseInt(req.query.limit) || 20;
+    const page = parseInt(req.query.page) || 1;
+    
+    // Build query
+    let query = {};
+    if (contentType && ['reel', 'full'].includes(contentType)) {
+      query.contentType = contentType;
+    }
+    
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
+    // Get videos from database
+    const videos = await Video.find(query)
+      .populate('uploadedBy', 'name email')
+      .sort({ createdAt: -1 }) // Latest first
+      .skip(skip)
+      .limit(limit);
+    
+    if (videos.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'No videos found' 
+      });
+    }
+    
+    // Transform videos for streaming format
+    const streamableVideos = videos.map(video => {
+      const videoObj = video.toObject();
+      
+      // Extract filename from videoUrl
+      const filename = videoObj.videoUrl.includes('/uploads/') 
+        ? videoObj.videoUrl.split('/uploads/')[1] 
+        : videoObj.videoUrl.replace('/uploads/', '');
+      
+      return {
+        id: videoObj._id,
+        title: videoObj.title,
+        description: videoObj.description,
+        contentType: videoObj.contentType,
+        category: videoObj.category,
+        thumbnail: ensureFullUrl(videoObj.thumbnailUrl),
+        videoUrl: ensureFullUrl(videoObj.videoUrl),
+        filename: filename, // For direct streaming
+        creator: {
+          id: videoObj.uploadedBy._id,
+          name: videoObj.uploadedBy.name,
+          email: videoObj.uploadedBy.email
+        },
+        stats: {
+          likes: videoObj.likes || 0
+        },
+        createdAt: videoObj.createdAt
+      };
+    });
+    
+    console.log(`📱 Streaming ${streamableVideos.length} videos`);
+    
+    res.json({
+      success: true,
+      data: {
+        videos: streamableVideos,
+        pagination: {
+          currentPage: page,
+          limit,
+          totalVideos: streamableVideos.length
+        },
+        metadata: {
+          contentType: contentType || 'all',
+          streamType: 'feed_format'
+        }
+      }
+    });
+    
+  } catch (err) {
+    console.error('📱 Stream all videos error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to stream videos', 
+      details: err.message 
+    });
+  }
+};
+
 const deleteVideo = async (req, res) => {
   try {
     const videoId = req.params.id;
@@ -384,6 +475,7 @@ export default {
   getVideoById,
   getMyVideos,
   streamVideo,
+  streamAllVideos,
   deleteVideo,
   likeVideo,
   getLikes,

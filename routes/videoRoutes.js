@@ -15,6 +15,7 @@ router.post(
 );
 
 router.get('/videos', VideoController.getAllVideos);
+router.get('/stream', VideoController.streamAllVideos); // Stream all videos without ID (perfect for feed)
 router.get('/videos/type/:type', VideoController.getVideosByType); // Get videos by content type (reel/full)
 router.get('/videos/:id', authenticateToken, VideoController.getVideoById);
 router.get('/videos/:id/stream', VideoController.streamVideo);
