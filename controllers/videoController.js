@@ -1,6 +1,27 @@
 import Video from '../Models/videoModel.js';
 import fs from 'fs';
 import path from 'path';
+import ffmpeg from 'fluent-ffmpeg';
+import ffprobe from 'ffprobe-static';
+
+// Set ffprobe path
+ffmpeg.setFfprobePath(ffprobe.path);
+
+// Helper function to get video duration in seconds
+const getVideoDuration = (videoPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) {
+        console.error('Error getting video duration:', err);
+        reject(err);
+      } else {
+        const duration = metadata.format.duration;
+        console.log(`Video duration: ${duration} seconds`);
+        resolve(duration);
+      }
+    });
+  });
+};
 
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
@@ -35,14 +56,27 @@ const uploadVideo = async (req, res) => {
       return res.status(400).json({ error: 'Video file is required' });
     }
 
-    const { title, description, contentType, category, customCategory } = req.body;
+    const { title, description, category, customCategory } = req.body;
 
-    console.log('📋 Video data:', { title, description, contentType, category, customCategory });
+    console.log('📋 Video data:', { title, description, category, customCategory });
+
+    // Get video duration to determine content type
+    const videoPath = path.join(process.cwd(), 'uploads', videoFile.filename);
+    let contentType = 'full'; // Default to full
+    
+    try {
+      const duration = await getVideoDuration(videoPath);
+      contentType = duration > 30 ? 'reel' : 'full';
+      console.log(`📏 Video duration: ${duration}s, Content type: ${contentType}`);
+    } catch (durationError) {
+      console.warn('⚠️ Could not determine video duration, defaulting to full:', durationError.message);
+      // Keep default contentType as 'full'
+    }
 
     const newVideo = new Video({
       title,
       description,
-      contentType,
+      contentType, // Automatically determined based on duration
       category: category ? category.split(',') : [], // if array comes as CSV
       customCategory,
       videoUrl: generateFileUrl(videoFile.filename),
@@ -54,7 +88,11 @@ const uploadVideo = async (req, res) => {
     await newVideo.save();
     console.log('✅ Video saved successfully');
     
-    res.status(201).json({ message: 'Video uploaded successfully', video: newVideo });
+    res.status(201).json({ 
+      message: 'Video uploaded successfully', 
+      video: newVideo,
+      duration: contentType === 'reel' ? '>30s' : '≤30s'
+    });
   } catch (err) {
     console.error('Upload video error:', err);
     res.status(500).json({ error: 'Failed to upload video', details: err.message });
@@ -299,6 +337,45 @@ const getLikes = async (req, res) => {
   }
 };
 
+// Get videos by content type (reel or full)
+const getVideosByType = async (req, res) => {
+  try {
+    const { type } = req.params; // 'reel' or 'full'
+    
+    if (!['reel', 'full'].includes(type)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid content type. Must be 'reel' or 'full'" 
+      });
+    }
+
+    const videos = await Video.find({ contentType: type })
+      .populate('uploadedBy', 'name email')
+      .sort({ createdAt: -1 }); // Latest first
+    
+    // Ensure all URLs are full URLs
+    const videosWithFullUrls = videos.map(video => ({
+      ...video.toObject(),
+      videoUrl: ensureFullUrl(video.videoUrl),
+      thumbnailUrl: ensureFullUrl(video.thumbnailUrl)
+    }));
+    
+    res.json({
+      success: true,
+      contentType: type,
+      count: videosWithFullUrls.length,
+      videos: videosWithFullUrls
+    });
+  } catch (err) {
+    console.error('Get videos by type error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch videos',
+      details: err.message 
+    });
+  }
+};
+
 
 
 export default {
@@ -309,5 +386,6 @@ export default {
   streamVideo,
   deleteVideo,
   likeVideo,
-  getLikes
+  getLikes,
+  getVideosByType
 };
