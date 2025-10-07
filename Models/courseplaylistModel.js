@@ -13,7 +13,7 @@ const coursePlaylistSchema = new mongoose.Schema({
   contentType: {
     type: String,
     required: true,
-    enum: ["video", "audio", "document", "quiz", "assignment"],
+    enum: ["full", "reel"],
     default: "video"
   },
   category: {
