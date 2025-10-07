@@ -6,6 +6,8 @@ import userRoutes from './routes/userRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
 import courseRoutes from './routes/courseRoutes.js';
+import fs from 'fs';
+import path from 'path';
 // Import routes
 
 // Load environment variables
@@ -118,8 +120,7 @@ app.use('/uploads', (req, res, next) => {
 // Debug endpoint for file access
 app.get('/debug/file/:filename', (req, res) => {
   const filename = decodeURIComponent(req.params.filename);
-  const fs = require('fs');
-  const path = require('path');
+ 
   
   console.log('🔍 Debug request for file:', filename);
   
