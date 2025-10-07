@@ -80,6 +80,36 @@ const quizSchema = new mongoose.Schema({
         type: Number,
         min: 1,
         default: 60 // Default 60 minutes
+    },
+    // Quiz difficulty level
+    level: {
+        type: String,
+        enum: ['beginner', 'intermediate', 'advanced', 'expert'],
+        default: 'beginner'
+    },
+    // Total marks for the quiz
+    totalMarks: {
+        type: Number,
+        required: true,
+        default: 100
+    },
+    // Marks per question (calculated automatically)
+    marksPerQuestion: {
+        type: Number,
+        default: function() {
+            return this.totalMarks / this.questions.length;
+        }
+    },
+    // Quiz category/subject
+    category: {
+        type: String,
+        required: true,
+        default: 'General'
+    },
+    // Quiz tags for filtering
+    tags: {
+        type: [String],
+        default: []
     }
 }, { timestamps: true });
 

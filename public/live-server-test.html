@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Server Video Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        video { width: 100%; max-width: 600px; }
+        .result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .primary-btn { background-color: #007bff; color: white; }
+        .secondary-btn { background-color: #6c757d; color: white; }
+        .warning-btn { background-color: #ffc107; color: black; }
+        button:hover { opacity: 0.8; }
+        .file-list { max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        .url-display { word-break: break-all; font-family: monospace; font-size: 12px; background-color: #f8f9fa; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🎥 Live Server Video Diagnostic Tool</h1>
+    
+    <div class="test-section">
+        <h3>🔧 Server Status Check</h3>
+        <button class="primary-btn" onclick="checkServerStatus()">Check Server</button>
+        <button class="secondary-btn" onclick="checkUploadsDirectory()">Check Uploads Dir</button>
+        <div id="serverStatus"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>📹 Your Video Test</h3>
+        <p><strong>Missing Video:</strong></p>
+        <div class="url-display">http://localhost:3002/uploads/1759600635591-myvideo.mp4</div>
+        <button class="warning-btn" onclick="testSpecificVideo('1759600635591-myvideo.mp4')">Test Missing Video</button>
+        <div id="specificResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>📂 Available Videos from Database</h3>
+        <button class="primary-btn" onclick="loadAvailableVideos()">Load Videos from DB</button>
+        <div id="availableVideos"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🎬 Working Video Test</h3>
+        <p>Test a video that actually exists in your uploads:</p>
+        <button class="primary-btn" onclick="testExistingVideo()">Test Existing Video</button>
+        <div id="existingResult"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🎞️ Video Player</h3>
+        <video id="videoPlayer" controls preload="metadata">
+            <source src="" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <p><strong>Current Source:</strong> <span id="currentSource">None</span></p>
+    </div>
+
+    <div class="test-section">
+        <h3>📊 Test Log</h3>
+        <div id="testLog" style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+        <button class="secondary-btn" onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const log = document.getElementById('testLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = type;
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearLog() {
+            document.getElementById('testLog').innerHTML = '';
+        }
+
+        function setResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+
+        async function checkServerStatus() {
+            log('Checking server status...', 'info');
+            try {
+                const response = await fetch('http://localhost:3002/');
+                if (response.ok) {
+                    const data = await response.json();
+                    setResult('serverStatus', `✅ Server running! <br>Message: ${data.message}<br>Version: ${data.version}`, 'success');
+                    log('Server is running successfully', 'success');
+                } else {
+                    setResult('serverStatus', `❌ Server error: ${response.status} ${response.statusText}`, 'error');
+                    log(`Server error: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                setResult('serverStatus', `❌ Cannot connect to server: ${error.message}`, 'error');
+                log(`Connection error: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkUploadsDirectory() {
+            log('Checking uploads directory...', 'info');
+            try {
+                // Try to access a known file first
+                const testUrl = 'http://localhost:3002/uploads/1759511566513-non stop water 🔥😱 #diy #experiment #funny #shortvideo #fyp #tips #shorts #workout #science #magic - sajanexperiment 🧪 (144p, h264).mp4';
+                const response = await fetch(testUrl, { method: 'HEAD' });
+                if (response.ok) {
+                    setResult('serverStatus', `✅ Uploads directory accessible! File size: ${response.headers.get('Content-Length')} bytes`, 'success');
+                    log('Uploads directory is working', 'success');
+                } else {
+                    setResult('serverStatus', `⚠️ Uploads directory issue: ${response.status}`, 'error');
+                    log(`Uploads directory issue: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                setResult('serverStatus', `❌ Cannot access uploads: ${error.message}`, 'error');
+                log(`Uploads access error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testSpecificVideo(filename) {
+            log(`Testing specific video: ${filename}`, 'info');
+            const url = `http://localhost:3002/uploads/${filename}`;
+            
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                if (response.ok) {
+                    const size = response.headers.get('Content-Length');
+                    setResult('specificResult', `✅ Video found! Size: ${size} bytes<br><a href="${url}" target="_blank">Open in new tab</a>`, 'success');
+                    
+                    // Try to load in video player
+                    loadVideo(url, filename);
+                    log(`Video found successfully: ${size} bytes`, 'success');
+                } else if (response.status === 404) {
+                    setResult('specificResult', `❌ File not found (404). The file ${filename} does not exist in the uploads directory.`, 'error');
+                    log(`File not found: ${filename}`, 'error');
+                } else {
+                    setResult('specificResult', `❌ HTTP Error: ${response.status} ${response.statusText}`, 'error');
+                    log(`HTTP error ${response.status} for: ${filename}`, 'error');
+                }
+            } catch (error) {
+                setResult('specificResult', `❌ Network error: ${error.message}`, 'error');
+                log(`Network error for ${filename}: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadAvailableVideos() {
+            log('Loading videos from database...', 'info');
+            try {
+                const response = await fetch('http://localhost:3002/api/videos');
+                if (response.ok) {
+                    const videos = await response.json();
+                    log(`Found ${videos.length} videos in database`, 'info');
+                    
+                    let html = `<strong>Found ${videos.length} videos:</strong><br>`;
+                    videos.forEach((video, index) => {
+                        if (index < 20) { // Show first 20 videos
+                            const filename = video.videoUrl.split('/uploads/')[1] || video.videoUrl;
+                            html += `<div style="margin: 5px 0;">
+                                ${index + 1}. <strong>${video.title}</strong><br>
+                                <small>URL: ${video.videoUrl}</small><br>
+                                <button onclick="testDatabaseVideo('${filename}')" style="padding: 5px 10px; font-size: 11px;">Test This Video</button>
+                            </div><hr>`;
+                        }
+                    });
+                    
+                    if (videos.length > 20) {
+                        html += `<p><em>And ${videos.length - 20} more videos...</em></p>`;
+                    }
+                    
+                    setResult('availableVideos', html, 'info');
+                } else {
+                    setResult('availableVideos', `❌ Failed to load videos: ${response.status}`, 'error');
+                    log(`Failed to load videos: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                setResult('availableVideos', `❌ Error loading videos: ${error.message}`, 'error');
+                log(`Error loading videos: ${error.message}`, 'error');
+            }
+        }
+
+        async function testDatabaseVideo(filename) {
+            log(`Testing database video: ${filename}`, 'info');
+            const url = `http://localhost:3002/uploads/${filename}`;
+            
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                if (response.ok) {
+                    log(`✅ Database video accessible: ${filename}`, 'success');
+                    loadVideo(url, filename);
+                } else {
+                    log(`❌ Database video not accessible: ${filename} (${response.status})`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error testing database video ${filename}: ${error.message}`, 'error');
+            }
+        }
+
+        async function testExistingVideo() {
+            log('Testing existing video...', 'info');
+            const testFiles = [
+                '1759511566513-non stop water 🔥😱 #diy #experiment #funny #shortvideo #fyp #tips #shorts #workout #science #magic - sajanexperiment 🧪 (144p, h264).mp4',
+                '1758298779463-Itni Saari Cars ek sath! 😍🔥 Vlog Masti - Paras vlogz (144p, h264).mp4'
+            ];
+            
+            for (const filename of testFiles) {
+                log(`Testing: ${filename}`, 'info');
+                const url = `http://localhost:3002/uploads/${filename}`;
+                
+                try {
+                    const response = await fetch(url, { method: 'HEAD' });
+                    if (response.ok) {
+                        setResult('existingResult', `✅ Video works! <br>File: ${filename}<br>Size: ${response.headers.get('Content-Length')} bytes<br><a href="${url}" target="_blank">Open Video</a>`, 'success');
+                        loadVideo(url, filename);
+                        log(`✅ Found working video: ${filename}`, 'success');
+                        return;
+                    }
+                } catch (error) {
+                    log(`Error testing ${filename}: ${error.message}`, 'error');
+                }
+            }
+            
+            setResult('existingResult', '❌ No existing videos found', 'error');
+        }
+
+        function loadVideo(url, filename) {
+            const video = document.getElementById('videoPlayer');
+            video.src = url;
+            document.getElementById('currentSource').textContent = url;
+            log(`Loading video in player: ${filename}`, 'info');
+            
+            video.addEventListener('loadeddata', () => {
+                log(`✅ Video loaded successfully: ${filename}`, 'success');
+            });
+            
+            video.addEventListener('error', (e) => {
+                const error = video.error;
+                let errorMsg = 'Unknown error';
+                if (error) {
+                    switch(error.code) {
+                        case error.MEDIA_ERR_NETWORK: errorMsg = 'Network error'; break;
+                        case error.MEDIA_ERR_DECODE: errorMsg = 'Decode error'; break;
+                        case error.MEDIA_ERR_SRC_NOT_SUPPORTED: errorMsg = 'Format not supported'; break;
+                        default: errorMsg = `Error ${error.code}`;
+                    }
+                }
+                log(`❌ Video player error: ${errorMsg}`, 'error');
+            });
+        }
+
+        // Auto-start when page loads
+        window.addEventListener('load', () => {
+            log('🚀 Live Server Diagnostic Tool loaded', 'info');
+            checkServerStatus();
+            testSpecificVideo('1759600635591-myvideo.mp4');
+        });
+    </script>
+</body>
+</html>
+
