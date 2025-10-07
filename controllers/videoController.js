@@ -203,6 +203,11 @@ const streamVideo = async (req, res) => {
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize,
         'Content-Type': 'video/mp4',
+        'Cache-Control': 'public, max-age=31536000',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range',
+        'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges'
       };
       res.writeHead(206, head);
       file.pipe(res);
@@ -211,6 +216,12 @@ const streamVideo = async (req, res) => {
       const head = {
         'Content-Length': fileSize,
         'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'public, max-age=31536000',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range',
+        'Access-Control-Expose-Headers': 'Content-Length, Accept-Ranges'
       };
       res.writeHead(200, head);
       fs.createReadStream(videoPath).pipe(res);

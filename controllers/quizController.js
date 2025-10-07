@@ -2,6 +2,11 @@ import Quiz from "../Models/quiz.js";
 
 // Helper function to update quiz status based on timing
 const updateQuizStatus = (quiz) => {
+    // Check if required fields exist
+    if (!quiz.startDate || !quiz.endDate || !quiz.startTime || !quiz.endTime) {
+        return 'invalid';
+    }
+    
     const now = new Date();
     const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
     const endDateTime = new Date(`${quiz.endDate.toISOString().split('T')[0]}T${quiz.endTime}`);
@@ -283,6 +288,76 @@ export const deleteQuiz = async (req, res) => {
             success: false,
             message: "Error deleting quiz",
             error: error.message
+        });
+    }
+};
+
+// ✅ Get all quizzes for student dashboard (created by teachers)
+export const getQuizzesForStudentDashboard = async (req, res) => {
+    try {
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({ 
+                success: false,
+                message: "Only students can access this endpoint." 
+            });
+        }
+
+        // Get all quizzes created by teachers, populate teacher information
+        const quizzes = await Quiz.find()
+            .populate("createdBy", "name email")
+            .sort({ createdAt: -1 }); // Sort by newest first
+        
+        // Add status and timing information to each quiz
+        const quizzesWithStatus = quizzes.map(quiz => {
+            const quizObj = quiz.toObject();
+            
+            // Check if startDate and endDate exist before processing
+            if (!quiz.startDate || !quiz.endDate) {
+                console.warn(`Quiz ${quiz._id} has missing startDate or endDate`);
+                return {
+                    ...quizObj,
+                    status: 'invalid',
+                    startDateTime: null,
+                    endDateTime: null,
+                    isActive: false,
+                    isScheduled: false,
+                    isEnded: false,
+                    teacherName: quiz.createdBy?.name || 'Unknown Teacher',
+                    teacherEmail: quiz.createdBy?.email || 'Unknown Email',
+                    error: 'Missing start or end date'
+                };
+            }
+            
+            const status = updateQuizStatus(quiz);
+            const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
+            const endDateTime = new Date(`${quiz.endDate.toISOString().split('T')[0]}T${quiz.endTime}`);
+            
+            return {
+                ...quizObj,
+                status,
+                startDateTime,
+                endDateTime,
+                isActive: status === 'active',
+                isScheduled: status === 'scheduled',
+                isEnded: status === 'ended',
+                teacherName: quiz.createdBy?.name || 'Unknown Teacher',
+                teacherEmail: quiz.createdBy?.email || 'Unknown Email'
+            };
+        });
+        
+        res.status(200).json({
+            success: true,
+            message: "Quizzes fetched successfully for student dashboard",
+            count: quizzesWithStatus.length,
+            quizzes: quizzesWithStatus
+        });
+    } catch (error) {
+        console.error('Get quizzes for student dashboard error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: "Error fetching quizzes for dashboard", 
+            error: error.message 
         });
     }
 };
