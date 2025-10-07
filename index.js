@@ -36,9 +36,7 @@ app.use('/uploads', (req, res, next) => {
   console.log('🎯 Requested file:', filename);
   console.log('🔍 Original URL:', req.url);
   
-  // Import required modules
-  const fs = require('fs');
-  const path = require('path');
+  
   
   // Construct file path
   const filePath = path.join(process.cwd(), 'uploads', filename);
