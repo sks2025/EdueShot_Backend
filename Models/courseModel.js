@@ -46,6 +46,12 @@ const courseSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
+  playlists: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CoursePlaylist",
+    },
+  ],
 }, { timestamps: true });
 
 const Course = mongoose.model("Course", courseSchema);
