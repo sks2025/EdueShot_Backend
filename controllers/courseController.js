@@ -144,7 +144,7 @@ export const getCourseById = async (req, res) => {
 // ✅ Enroll in a Course (student pays -> enroll)
 export const enrollCourse = async (req, res) => {
   try {
-    const userId = req.userId; // student
+    const userId = req.user.userId; // student
     const { courseId } = req.params;
 
     const course = await Course.findById(courseId);
@@ -169,7 +169,7 @@ export const enrollCourse = async (req, res) => {
 // ✅ Update Course (only teacher who created it)
 export const updateCourse = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { courseId } = req.params;
 
     const course = await Course.findById(courseId);
@@ -196,7 +196,7 @@ export const updateCourse = async (req, res) => {
 // ✅ Delete Course (only teacher who created it)
 export const deleteCourse = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { courseId } = req.params;
 
     const course = await Course.findById(courseId);
