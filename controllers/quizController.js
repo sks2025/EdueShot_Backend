@@ -1,4 +1,5 @@
 import Quiz from "../Models/quiz.js";
+import { QuizProgress } from "../Models/quizProgressModel.js";
 
 // Helper function to update quiz status based on timing
 const updateQuizStatus = (quiz) => {
@@ -357,6 +358,299 @@ export const getQuizzesForStudentDashboard = async (req, res) => {
         res.status(500).json({ 
             success: false,
             message: "Error fetching quizzes for dashboard", 
+            error: error.message 
+        });
+    }
+};
+
+// ✅ Get simplified quiz list for student dashboard (only essential info)
+export const getStudentDashboardQuizzes = async (req, res) => {
+    try {
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({ 
+                success: false,
+                message: "Only students can access this endpoint." 
+            });
+        }
+
+        const studentId = req.user.userId;
+
+        // Get all quizzes with only essential fields
+        const quizzes = await Quiz.find()
+            .select('title category startDate startTime questions')
+            .populate("createdBy", "name")
+            .sort({ startDate: 1, startTime: 1 }); // Sort by start date and time
+        
+        // Get student's progress for all quizzes
+        const quizIds = quizzes.map(quiz => quiz._id);
+        const progressRecords = await QuizProgress.find({
+            student: studentId,
+            quiz: { $in: quizIds }
+        }).populate('quiz', '_id');
+
+        // Create a map for quick progress lookup
+        const progressMap = {};
+        progressRecords.forEach(progress => {
+            progressMap[progress.quiz._id.toString()] = progress;
+        });
+        
+        // Transform to simplified format with progress information
+        const simplifiedQuizzes = quizzes.map(quiz => {
+            const status = updateQuizStatus(quiz);
+            const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
+            const progress = progressMap[quiz._id.toString()];
+            
+            return {
+                _id: quiz._id,
+                title: quiz.title,
+                category: quiz.category,
+                startTime: quiz.startTime,
+                startDate: quiz.startDate,
+                startDateTime: startDateTime,
+                numberOfQuestions: quiz.questions.length,
+                completedQuestions: progress ? progress.completedQuestions.length : 0,
+                progressStatus: progress ? progress.status : 'not_started',
+                status: status,
+                teacherName: quiz.createdBy?.name || 'Unknown Teacher',
+                // Additional progress info
+                progressPercentage: progress && quiz.questions.length > 0 
+                    ? Math.round((progress.completedQuestions.length / quiz.questions.length) * 100) 
+                    : 0
+            };
+        });
+        
+        res.status(200).json({
+            success: true,
+            message: "Student dashboard quizzes fetched successfully",
+            count: simplifiedQuizzes.length,
+            quizzes: simplifiedQuizzes
+        });
+    } catch (error) {
+        console.error('Get student dashboard quizzes error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: "Error fetching student dashboard quizzes", 
+            error: error.message 
+        });
+    }
+};
+
+// ✅ Start a quiz (create progress record)
+export const startQuiz = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({ 
+                success: false,
+                message: "Only students can start quizzes." 
+            });
+        }
+
+        // Check if quiz exists
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check if quiz is active or scheduled
+        const quizStatus = updateQuizStatus(quiz);
+        if (quizStatus === 'ended') {
+            return res.status(400).json({
+                success: false,
+                message: "This quiz has already ended."
+            });
+        }
+
+        // Check if progress already exists
+        let progress = await QuizProgress.findOne({
+            student: studentId,
+            quiz: quizId
+        });
+
+        if (progress) {
+            // Update status to in_progress if it was not_started
+            if (progress.status === 'not_started') {
+                progress.status = 'in_progress';
+                progress.startedAt = new Date();
+                await progress.save();
+            }
+        } else {
+            // Create new progress record
+            progress = new QuizProgress({
+                student: studentId,
+                quiz: quizId,
+                status: 'in_progress',
+                startedAt: new Date()
+            });
+            await progress.save();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Quiz started successfully",
+            progress: {
+                quizId: quizId,
+                status: progress.status,
+                startedAt: progress.startedAt,
+                completedQuestions: progress.completedQuestions.length,
+                totalQuestions: quiz.questions.length
+            }
+        });
+    } catch (error) {
+        console.error('Start quiz error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: "Error starting quiz", 
+            error: error.message 
+        });
+    }
+};
+
+// ✅ Submit answer for a question
+export const submitAnswer = async (req, res) => {
+    try {
+        const { quizId, questionIndex } = req.params;
+        const { selectedAnswer } = req.body;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({ 
+                success: false,
+                message: "Only students can submit answers." 
+            });
+        }
+
+        // Check if quiz exists
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Validate question index
+        const questionIdx = parseInt(questionIndex);
+        if (questionIdx < 0 || questionIdx >= quiz.questions.length) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid question index."
+            });
+        }
+
+        // Validate selected answer
+        if (selectedAnswer < 0 || selectedAnswer > 3) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid answer selection. Must be between 0-3."
+            });
+        }
+
+        // Get or create progress record
+        let progress = await QuizProgress.findOne({
+            student: studentId,
+            quiz: quizId
+        });
+
+        if (!progress) {
+            progress = new QuizProgress({
+                student: studentId,
+                quiz: quizId,
+                status: 'in_progress',
+                startedAt: new Date()
+            });
+        }
+
+        // Check if answer is correct
+        const question = quiz.questions[questionIdx];
+        const isCorrect = selectedAnswer === question.correctAnswer;
+
+        // Add completed question
+        await progress.addCompletedQuestion(questionIdx, selectedAnswer, isCorrect);
+
+        // Check if all questions are completed
+        if (progress.completedQuestions.length === quiz.questions.length) {
+            await progress.markAsCompleted();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Answer submitted successfully",
+            result: {
+                isCorrect: isCorrect,
+                correctAnswer: question.correctAnswer,
+                completedQuestions: progress.completedQuestions.length,
+                totalQuestions: quiz.questions.length,
+                isQuizCompleted: progress.status === 'completed'
+            }
+        });
+    } catch (error) {
+        console.error('Submit answer error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: "Error submitting answer", 
+            error: error.message 
+        });
+    }
+};
+
+// ✅ Get quiz progress for a specific quiz
+export const getQuizProgress = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({ 
+                success: false,
+                message: "Only students can view quiz progress." 
+            });
+        }
+
+        // Get progress record
+        const progress = await QuizProgress.findOne({
+            student: studentId,
+            quiz: quizId
+        }).populate('quiz', 'title questions');
+
+        if (!progress) {
+            return res.status(404).json({
+                success: false,
+                message: "No progress found for this quiz. Start the quiz first."
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Quiz progress retrieved successfully",
+            progress: {
+                quizId: quizId,
+                quizTitle: progress.quiz.title,
+                status: progress.status,
+                startedAt: progress.startedAt,
+                completedAt: progress.completedAt,
+                completedQuestions: progress.completedQuestions.length,
+                totalQuestions: progress.quiz.questions.length,
+                progressPercentage: progress.quiz.questions.length > 0 
+                    ? Math.round((progress.completedQuestions.length / progress.quiz.questions.length) * 100) 
+                    : 0,
+                completedQuestionsDetails: progress.completedQuestions
+            }
+        });
+    } catch (error) {
+        console.error('Get quiz progress error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: "Error retrieving quiz progress", 
             error: error.message 
         });
     }
