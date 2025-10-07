@@ -6,6 +6,7 @@ import userRoutes from './routes/userRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
 import courseRoutes from './routes/courseRoutes.js';
+import playlistRoutes from './routes/playlistRoute.js';
 import fs from 'fs';
 import path from 'path';
 // Import routes
@@ -156,6 +157,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/videos', videoRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/courses', courseRoutes);
+app.use('/api/playlists', playlistRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
@@ -170,7 +172,8 @@ app.get('/', (req, res) => {
       profile: 'GET /api/users/profile',
       quizzes: '/api/quizzes',
       videos: '/api/videos',
-      courses: '/api/courses'
+      courses: '/api/courses',
+      playlists: '/api/playlists'
     }
   });
 });
