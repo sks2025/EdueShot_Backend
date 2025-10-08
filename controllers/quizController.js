@@ -1,4 +1,5 @@
 import Quiz from "../Models/quiz.js";
+import User from "../Models/userModel.js";
 
 // Helper function to update quiz status based on timing
 const updateQuizStatus = (quiz) => {
@@ -409,6 +410,350 @@ export const getStudentDashboardQuizzes = async (req, res) => {
             success: false,
             message: "Error fetching student dashboard quizzes", 
             error: error.message 
+        });
+    }
+};
+
+// ✅ Start Quiz - Student begins playing a quiz
+export const startQuiz = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can start quizzes."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check quiz status
+        const status = updateQuizStatus(quiz);
+        if (status !== 'active') {
+            return res.status(400).json({
+                success: false,
+                message: `Quiz is not currently active. Status: ${status}`,
+                quizStatus: status
+            });
+        }
+
+        // Check if student has already attempted this quiz
+        const student = await User.findById(studentId);
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: "Student not found."
+            });
+        }
+
+        // Check if student has already attempted this quiz
+        if (student.quizAttempts && student.quizAttempts.includes(quizId)) {
+            return res.status(400).json({
+                success: false,
+                message: "You have already attempted this quiz."
+            });
+        }
+
+        // Create quiz session data
+        const quizSession = {
+            quizId: quiz._id,
+            studentId: studentId,
+            startTime: new Date(),
+            currentQuestionIndex: 0,
+            answers: [],
+            totalQuestions: quiz.questions.length,
+            timeRemaining: quiz.totalDuration * 60 // Convert minutes to seconds
+        };
+
+        res.status(200).json({
+            success: true,
+            message: "Quiz started successfully",
+            quizSession: {
+                quizId: quiz._id,
+                title: quiz.title,
+                description: quiz.description,
+                totalQuestions: quiz.questions.length,
+                totalDuration: quiz.totalDuration,
+                timeRemaining: quizSession.timeRemaining,
+                currentQuestionIndex: 0
+            }
+        });
+
+    } catch (error) {
+        console.error('Start quiz error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error starting quiz",
+            error: error.message
+        });
+    }
+};
+
+// ✅ Get Quiz Question - Fetch a specific question for the student
+export const getQuizQuestion = async (req, res) => {
+    try {
+        const { quizId, questionIndex } = req.params;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can access quiz questions."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check quiz status
+        const status = updateQuizStatus(quiz);
+        if (status !== 'active') {
+            return res.status(400).json({
+                success: false,
+                message: `Quiz is not currently active. Status: ${status}`,
+                quizStatus: status
+            });
+        }
+
+        // Validate question index
+        const questionIdx = parseInt(questionIndex);
+        if (isNaN(questionIdx) || questionIdx < 0 || questionIdx >= quiz.questions.length) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid question index."
+            });
+        }
+
+        const question = quiz.questions[questionIdx];
+
+        // Return question without correct answer
+        const questionForStudent = {
+            questionIndex: questionIdx,
+            questionText: question.questionText,
+            options: question.options,
+            timeLimit: question.timeLimit,
+            totalQuestions: quiz.questions.length,
+            quizTitle: quiz.title
+        };
+
+        res.status(200).json({
+            success: true,
+            message: "Question fetched successfully",
+            question: questionForStudent
+        });
+
+    } catch (error) {
+        console.error('Get quiz question error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error fetching question",
+            error: error.message
+        });
+    }
+};
+
+// ✅ Submit Answer - Student submits answer for a question
+export const submitAnswer = async (req, res) => {
+    try {
+        const { quizId, questionIndex } = req.params;
+        const { selectedAnswer } = req.body;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can submit answers."
+            });
+        }
+
+        // Validate selected answer
+        if (selectedAnswer === undefined || selectedAnswer < 0 || selectedAnswer > 3) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid answer. Please select an option between 0-3."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check quiz status
+        const status = updateQuizStatus(quiz);
+        if (status !== 'active') {
+            return res.status(400).json({
+                success: false,
+                message: `Quiz is not currently active. Status: ${status}`,
+                quizStatus: status
+            });
+        }
+
+        // Validate question index
+        const questionIdx = parseInt(questionIndex);
+        if (isNaN(questionIdx) || questionIdx < 0 || questionIdx >= quiz.questions.length) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid question index."
+            });
+        }
+
+        const question = quiz.questions[questionIdx];
+        const isCorrect = selectedAnswer === question.correctAnswer;
+
+        // For now, we'll just return the result
+        // In a real application, you'd want to store this in a separate QuizAttempt model
+        res.status(200).json({
+            success: true,
+            message: "Answer submitted successfully",
+            result: {
+                questionIndex: questionIdx,
+                selectedAnswer: selectedAnswer,
+                correctAnswer: question.correctAnswer,
+                isCorrect: isCorrect,
+                nextQuestionIndex: questionIdx + 1,
+                isLastQuestion: questionIdx === quiz.questions.length - 1
+            }
+        });
+
+    } catch (error) {
+        console.error('Submit answer error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error submitting answer",
+            error: error.message
+        });
+    }
+};
+
+// ✅ Complete Quiz - Student finishes the quiz
+export const completeQuiz = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const { answers } = req.body; // Array of {questionIndex, selectedAnswer}
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can complete quizzes."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check quiz status
+        const status = updateQuizStatus(quiz);
+        if (status !== 'active') {
+            return res.status(400).json({
+                success: false,
+                message: `Quiz is not currently active. Status: ${status}`,
+                quizStatus: status
+            });
+        }
+
+        // Validate answers array
+        if (!Array.isArray(answers) || answers.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Answers array is required and cannot be empty."
+            });
+        }
+
+        // Calculate score
+        let correctAnswers = 0;
+        const detailedResults = [];
+
+        answers.forEach(answer => {
+            const questionIdx = answer.questionIndex;
+            const selectedAnswer = answer.selectedAnswer;
+            
+            if (questionIdx >= 0 && questionIdx < quiz.questions.length) {
+                const question = quiz.questions[questionIdx];
+                const isCorrect = selectedAnswer === question.correctAnswer;
+                
+                if (isCorrect) {
+                    correctAnswers++;
+                }
+                
+                detailedResults.push({
+                    questionIndex: questionIdx,
+                    questionText: question.questionText,
+                    selectedAnswer: selectedAnswer,
+                    correctAnswer: question.correctAnswer,
+                    isCorrect: isCorrect
+                });
+            }
+        });
+
+        const totalQuestions = quiz.questions.length;
+        const score = (correctAnswers / totalQuestions) * 100;
+        const marksObtained = (correctAnswers / totalQuestions) * quiz.totalMarks;
+
+        // Mark quiz as attempted for the student
+        const student = await User.findById(studentId);
+        if (student) {
+            if (!student.quizAttempts) {
+                student.quizAttempts = [];
+            }
+            if (!student.quizAttempts.includes(quizId)) {
+                student.quizAttempts.push(quizId);
+                await student.save();
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Quiz completed successfully",
+            results: {
+                quizId: quiz._id,
+                quizTitle: quiz.title,
+                totalQuestions: totalQuestions,
+                correctAnswers: correctAnswers,
+                wrongAnswers: totalQuestions - correctAnswers,
+                score: Math.round(score * 100) / 100, // Round to 2 decimal places
+                marksObtained: Math.round(marksObtained * 100) / 100,
+                totalMarks: quiz.totalMarks,
+                detailedResults: detailedResults
+            }
+        });
+
+    } catch (error) {
+        console.error('Complete quiz error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error completing quiz",
+            error: error.message
         });
     }
 };

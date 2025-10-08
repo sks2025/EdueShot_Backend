@@ -10,7 +10,8 @@ const userSchema = new mongoose.Schema(
     otpExpires: { type: Date },
     forgotPasswordOtp: { type: String },
     forgotPasswordExpiry: { type: Date },
-    isVerified: { type: Boolean, default: false }
+    isVerified: { type: Boolean, default: false },
+    quizAttempts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Quiz' }] // Track attempted quizzes
   },
   { timestamps: true }
 );
