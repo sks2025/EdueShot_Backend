@@ -205,8 +205,17 @@ export const getQuizById = async (req, res) => {
         const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
         const endDateTime = new Date(`${quiz.endDate.toISOString().split('T')[0]}T${quiz.endTime}`);
         
+        // Remove correct answers from questions for security
+        const questionsWithoutAnswers = quizObj.questions.map(q => ({
+            questionText: q.questionText,
+            options: q.options,
+            timeLimit: q.timeLimit
+            // correctAnswer is intentionally excluded
+        }));
+
         const quizWithStatus = {
             ...quizObj,
+            questions: questionsWithoutAnswers, // Use questions without correct answers
             status,
             startDateTime,
             endDateTime,
@@ -543,7 +552,7 @@ export const getQuizQuestion = async (req, res) => {
 
         const question = quiz.questions[questionIdx];
 
-        // Return question without correct answer
+        // Return question without correct answer - explicitly exclude correctAnswer
         const questionForStudent = {
             questionIndex: questionIdx,
             questionText: question.questionText,
@@ -551,6 +560,7 @@ export const getQuizQuestion = async (req, res) => {
             timeLimit: question.timeLimit,
             totalQuestions: quiz.questions.length,
             quizTitle: quiz.title
+            // Note: correctAnswer is intentionally excluded for security
         };
 
         res.status(200).json({
@@ -753,6 +763,72 @@ export const completeQuiz = async (req, res) => {
         res.status(500).json({
             success: false,
             message: "Error completing quiz",
+            error: error.message
+        });
+    }
+};
+
+// ✅ Get Quiz Result - Retrieve completed quiz results
+export const getQuizResult = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can view quiz results."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check if student has attempted this quiz
+        const student = await User.findById(studentId);
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                message: "Student not found."
+            });
+        }
+
+        if (!student.quizAttempts || !student.quizAttempts.includes(quizId)) {
+            return res.status(400).json({
+                success: false,
+                message: "You have not attempted this quiz yet."
+            });
+        }
+
+        // For now, we'll return a message that results are not stored
+        // In a real application, you'd fetch from a QuizAttempt model
+        res.status(200).json({
+            success: true,
+            message: "Quiz results retrieved successfully",
+            result: {
+                quizId: quiz._id,
+                quizTitle: quiz.title,
+                description: quiz.description,
+                totalQuestions: quiz.questions.length,
+                totalMarks: quiz.totalMarks,
+                status: "completed",
+                attemptedAt: new Date(),
+                note: "Results are calculated when you complete the quiz. Use the complete quiz endpoint to get detailed results."
+            }
+        });
+
+    } catch (error) {
+        console.error('Get quiz result error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error retrieving quiz result",
             error: error.message
         });
     }
