@@ -1,5 +1,6 @@
 import Quiz from "../Models/quiz.js";
 import User from "../Models/userModel.js";
+import QuizAttempt from "../Models/quizAttemptModel.js";
 
 // Helper function to update quiz status based on timing
 const updateQuizStatus = (quiz) => {
@@ -730,6 +731,36 @@ export const completeQuiz = async (req, res) => {
         const score = (correctAnswers / totalQuestions) * 100;
         const marksObtained = (correctAnswers / totalQuestions) * quiz.totalMarks;
 
+        // Check if student has already attempted this quiz
+        const existingAttempt = await QuizAttempt.findOne({ 
+            studentId: studentId, 
+            quizId: quizId 
+        });
+
+        if (existingAttempt) {
+            return res.status(400).json({
+                success: false,
+                message: "You have already completed this quiz."
+            });
+        }
+
+        // Create quiz attempt record
+        const quizAttempt = new QuizAttempt({
+            studentId: studentId,
+            quizId: quizId,
+            answers: detailedResults,
+            score: Math.round(score * 100) / 100,
+            marksObtained: Math.round(marksObtained * 100) / 100,
+            totalMarks: quiz.totalMarks,
+            correctAnswers: correctAnswers,
+            wrongAnswers: totalQuestions - correctAnswers,
+            totalQuestions: totalQuestions,
+            completedAt: new Date(),
+            status: 'completed'
+        });
+
+        await quizAttempt.save();
+
         // Mark quiz as attempted for the student
         const student = await User.findById(studentId);
         if (student) {
@@ -746,6 +777,7 @@ export const completeQuiz = async (req, res) => {
             success: true,
             message: "Quiz completed successfully",
             results: {
+                attemptId: quizAttempt._id,
                 quizId: quiz._id,
                 quizTitle: quiz.title,
                 totalQuestions: totalQuestions,
@@ -754,6 +786,7 @@ export const completeQuiz = async (req, res) => {
                 score: Math.round(score * 100) / 100, // Round to 2 decimal places
                 marksObtained: Math.round(marksObtained * 100) / 100,
                 totalMarks: quiz.totalMarks,
+                completedAt: quizAttempt.completedAt,
                 detailedResults: detailedResults
             }
         });
@@ -800,27 +833,36 @@ export const getQuizResult = async (req, res) => {
             });
         }
 
-        if (!student.quizAttempts || !student.quizAttempts.includes(quizId)) {
+        // Find the quiz attempt
+        const quizAttempt = await QuizAttempt.findOne({ 
+            studentId: studentId, 
+            quizId: quizId 
+        }).populate('quizId', 'title description totalMarks');
+
+        if (!quizAttempt) {
             return res.status(400).json({
                 success: false,
                 message: "You have not attempted this quiz yet."
             });
         }
 
-        // For now, we'll return a message that results are not stored
-        // In a real application, you'd fetch from a QuizAttempt model
         res.status(200).json({
             success: true,
             message: "Quiz results retrieved successfully",
             result: {
+                attemptId: quizAttempt._id,
                 quizId: quiz._id,
                 quizTitle: quiz.title,
                 description: quiz.description,
-                totalQuestions: quiz.questions.length,
-                totalMarks: quiz.totalMarks,
-                status: "completed",
-                attemptedAt: new Date(),
-                note: "Results are calculated when you complete the quiz. Use the complete quiz endpoint to get detailed results."
+                totalQuestions: quizAttempt.totalQuestions,
+                correctAnswers: quizAttempt.correctAnswers,
+                wrongAnswers: quizAttempt.wrongAnswers,
+                score: quizAttempt.score,
+                marksObtained: quizAttempt.marksObtained,
+                totalMarks: quizAttempt.totalMarks,
+                completedAt: quizAttempt.completedAt,
+                status: quizAttempt.status,
+                detailedResults: quizAttempt.answers
             }
         });
 
