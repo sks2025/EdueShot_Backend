@@ -876,5 +876,68 @@ export const getQuizResult = async (req, res) => {
     }
 };
 
+// ✅ Get Recent Played Quizzes - Get student's recent quiz attempts
+export const getRecentPlayedQuizzes = async (req, res) => {
+    try {
+        const studentId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can view their recent played quizzes."
+            });
+        }
+
+        // Get recent quiz attempts with quiz details
+        const recentAttempts = await QuizAttempt.find({ studentId: studentId })
+            .populate('quizId', 'title description totalMarks')
+            .sort({ completedAt: -1 }) // Sort by most recent first
+            .limit(10); // Limit to 10 most recent attempts
+
+        if (recentAttempts.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: "No quiz attempts found",
+                count: 0,
+                recentQuizzes: []
+            });
+        }
+
+        // Format the response
+        const formattedQuizzes = recentAttempts.map(attempt => {
+            const quiz = attempt.quizId;
+            return {
+                attemptId: attempt._id,
+                testName: quiz.title,
+                totalQuestions: attempt.totalQuestions,
+                correctAnswers: attempt.correctAnswers,
+                wrongAnswers: attempt.wrongAnswers,
+                percentage: attempt.score,
+                marksObtained: attempt.marksObtained,
+                totalMarks: attempt.totalMarks,
+                completedAt: attempt.completedAt,
+                status: attempt.status,
+                quizDescription: quiz.description
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Recent played quizzes retrieved successfully",
+            count: formattedQuizzes.length,
+            recentQuizzes: formattedQuizzes
+        });
+
+    } catch (error) {
+        console.error('Get recent played quizzes error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error retrieving recent played quizzes",
+            error: error.message
+        });
+    }
+};
+
 
 
