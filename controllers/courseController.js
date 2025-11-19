@@ -89,18 +89,25 @@ export const createCourse = async (req, res) => {
   }
 };
 
-// ✅ Get All Courses
+// ✅ Get All Courses (visible to all users - students, teachers, admins)
 export const getCourses = async (req, res) => {
   try {
     const courses = await Course.find()
-      .populate("teacher", "name email")
-      .populate("students", "name email");
+      .populate("teacher", "name email role")
+      .populate("students", "name email")
+      .sort({ createdAt: -1 }); // Sort by newest first
 
-    // Ensure all thumbnail URLs are full URLs
-    const coursesWithFullUrls = courses.map(course => ({
-      ...course.toObject(),
-      thumbnail: ensureFullUrl(course.thumbnail)
-    }));
+    // Ensure all thumbnail URLs are full URLs and handle null teachers
+    const coursesWithFullUrls = courses.map(course => {
+      const courseObj = course.toObject();
+      return {
+        ...courseObj,
+        thumbnail: ensureFullUrl(courseObj.thumbnail),
+        // Add flag to indicate if course is admin-created (no teacher)
+        isAdminCreated: !courseObj.teacher,
+        teacher: courseObj.teacher || null // Explicitly set to null if no teacher
+      };
+    });
 
     res.status(200).json({ success: true, courses: coursesWithFullUrls });
   } catch (error) {
@@ -108,12 +115,12 @@ export const getCourses = async (req, res) => {
   }
 };
 
-// ✅ Get Single Course by ID
+// ✅ Get Single Course by ID (visible to all users)
 export const getCourseById = async (req, res) => {
   try {
     const { courseId } = req.params;
     const course = await Course.findById(courseId)
-      .populate("teacher", "name email")
+      .populate("teacher", "name email role")
       .populate("students", "name email");
 
     if (!course) {
@@ -123,10 +130,14 @@ export const getCourseById = async (req, res) => {
       });
     }
 
-    // Ensure thumbnail URL is full URL
+    // Ensure thumbnail URL is full URL and handle null teacher
+    const courseObj = course.toObject();
     const courseWithFullUrl = {
-      ...course.toObject(),
-      thumbnail: ensureFullUrl(course.thumbnail)
+      ...courseObj,
+      thumbnail: ensureFullUrl(courseObj.thumbnail),
+      // Add flag to indicate if course is admin-created (no teacher)
+      isAdminCreated: !courseObj.teacher,
+      teacher: courseObj.teacher || null // Explicitly set to null if no teacher
     };
 
     res.status(200).json({ 
@@ -166,10 +177,11 @@ export const enrollCourse = async (req, res) => {
   }
 };
 
-// ✅ Update Course (only teacher who created it)
+// ✅ Update Course (only teacher who created it, or admin)
 export const updateCourse = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const userRole = req.user.role;
     const { courseId } = req.params;
 
     const course = await Course.findById(courseId);
@@ -178,8 +190,14 @@ export const updateCourse = async (req, res) => {
       return res.status(404).json({ success: false, message: "Course not found" });
     }
 
-    if (course.teacher.toString() !== userId) {
-      return res.status(403).json({ success: false, message: "Not authorized" });
+    // Admin can update any course, or teacher can update their own course
+    if (userRole !== 'admin') {
+      if (!course.teacher || course.teacher.toString() !== userId) {
+        return res.status(403).json({ 
+          success: false, 
+          message: "Not authorized. Only the course teacher or admin can update this course." 
+        });
+      }
     }
 
     const updates = req.body;
@@ -187,16 +205,28 @@ export const updateCourse = async (req, res) => {
 
     await course.save();
 
-    res.status(200).json({ success: true, message: "Course updated", course });
+    // Populate and format response
+    const updatedCourse = await Course.findById(course._id)
+      .populate("teacher", "name email role")
+      .populate("students", "name email");
+
+    const courseObj = updatedCourse.toObject();
+    const courseWithFullUrl = {
+      ...courseObj,
+      thumbnail: ensureFullUrl(courseObj.thumbnail)
+    };
+
+    res.status(200).json({ success: true, message: "Course updated", course: courseWithFullUrl });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ✅ Delete Course (only teacher who created it)
+// ✅ Delete Course (only teacher who created it, or admin)
 export const deleteCourse = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const userRole = req.user.role;
     const { courseId } = req.params;
 
     const course = await Course.findById(courseId);
@@ -205,8 +235,14 @@ export const deleteCourse = async (req, res) => {
       return res.status(404).json({ success: false, message: "Course not found" });
     }
 
-    if (course.teacher.toString() !== userId) {
-      return res.status(403).json({ success: false, message: "Not authorized" });
+    // Admin can delete any course, or teacher can delete their own course
+    if (userRole !== 'admin') {
+      if (!course.teacher || course.teacher.toString() !== userId) {
+        return res.status(403).json({ 
+          success: false, 
+          message: "Not authorized. Only the course teacher or admin can delete this course." 
+        });
+      }
     }
 
     await course.deleteOne();

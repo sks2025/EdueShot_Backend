@@ -36,10 +36,13 @@ const register = async (req, res) => {
       });
     }
 
+    // Find pending user (either with OTP or already verified OTP)
+    let pendingUser = null;
+
     // If OTP is provided, verify it and complete registration
     if (otp) {
       // Find pending user with matching OTP
-      const pendingUser = await User.findOne({ 
+      pendingUser = await User.findOne({ 
         email, 
         otp, 
         otpExpires: { $gt: new Date() },
@@ -52,69 +55,84 @@ const register = async (req, res) => {
           message: "Invalid or expired OTP. Please request a new OTP."
         });
       }
+    } else {
+      // If no OTP provided, check if user has a pending account with valid OTP
+      // This allows registration after verifyOTP was called separately
+      pendingUser = await User.findOne({ 
+        email,
+        isVerified: false,
+        otpExpires: { $gt: new Date() }
+      });
 
-      console.log('Found pending user for registration:', email);
-      console.log('Pending user OTP:', pendingUser.otp);
-      console.log('Provided OTP:', otp);
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // Update pending user to complete registration with verified status
-      pendingUser.name = name;
-      pendingUser.password = hashedPassword;
-      pendingUser.role = role;
-      pendingUser.isVerified = true;
-      pendingUser.otp = null;
-      pendingUser.otpExpires = null;
-      // Ensure forgot password fields are also cleared
-      pendingUser.forgotPasswordOtp = null;
-      pendingUser.forgotPasswordExpiry = null;
-      
-      await pendingUser.save();
-      
-      // Verify the user was saved correctly
-      const savedUser = await User.findById(pendingUser._id);
-      console.log('User registration completed and verified:', email);
-      console.log('User isVerified status in memory:', pendingUser.isVerified);
-      console.log('User isVerified status in database:', savedUser.isVerified);
-      console.log('User saved successfully:', !!savedUser);
-      
-      // Security: Ensure OTP fields are cleared for verified users
-      if (savedUser && savedUser.isVerified) {
-        console.log('🔒 Security: Ensuring OTP fields are cleared for verified user');
-        if (savedUser.otp || savedUser.otpExpires || savedUser.forgotPasswordOtp || savedUser.forgotPasswordExpiry) {
-          console.log('⚠️ Warning: OTP fields still exist for verified user, clearing them...');
-          await User.findByIdAndUpdate(savedUser._id, {
-            otp: null,
-            otpExpires: null,
-            forgotPasswordOtp: null,
-            forgotPasswordExpiry: null
-          });
-          console.log('✅ OTP fields cleared for verified user');
-        }
+      if (!pendingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Please verify your email with OTP before completing registration. Either provide OTP in this request or verify OTP first using /api/users/verify endpoint."
+        });
       }
 
-      const userResponse = {
-        _id: pendingUser._id,
-        name: pendingUser.name,
-        email: pendingUser.email,
-        role: pendingUser.role,
-        isVerified: pendingUser.isVerified,
-        createdAt: pendingUser.createdAt
-      };
-
-      return res.status(201).json({ 
-        success: true, 
-        message: "User registered and email verified successfully!",
-        user: userResponse,
-      });
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: "Please verify your email with OTP before completing registration."
-      });
+      // If OTP exists but wasn't provided, still allow registration (OTP already verified via /verify endpoint)
+      console.log('Registration without OTP - user has pending account with valid OTP');
     }
+
+    console.log('Found pending user for registration:', email);
+    if (otp) {
+      console.log('Pending user OTP:', pendingUser.otp);
+      console.log('Provided OTP:', otp);
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update pending user to complete registration with verified status
+    pendingUser.name = name;
+    pendingUser.password = hashedPassword;
+    pendingUser.role = role;
+    pendingUser.isVerified = true;
+    pendingUser.otp = null;
+    pendingUser.otpExpires = null;
+    // Ensure forgot password fields are also cleared
+    pendingUser.forgotPasswordOtp = null;
+    pendingUser.forgotPasswordExpiry = null;
+    
+    await pendingUser.save();
+    
+    // Verify the user was saved correctly
+    const savedUser = await User.findById(pendingUser._id);
+    console.log('User registration completed and verified:', email);
+    console.log('User isVerified status in memory:', pendingUser.isVerified);
+    console.log('User isVerified status in database:', savedUser.isVerified);
+    console.log('User saved successfully:', !!savedUser);
+    
+    // Security: Ensure OTP fields are cleared for verified users
+    if (savedUser && savedUser.isVerified) {
+      console.log('🔒 Security: Ensuring OTP fields are cleared for verified user');
+      if (savedUser.otp || savedUser.otpExpires || savedUser.forgotPasswordOtp || savedUser.forgotPasswordExpiry) {
+        console.log('⚠️ Warning: OTP fields still exist for verified user, clearing them...');
+        await User.findByIdAndUpdate(savedUser._id, {
+          otp: null,
+          otpExpires: null,
+          forgotPasswordOtp: null,
+          forgotPasswordExpiry: null
+        });
+        console.log('✅ OTP fields cleared for verified user');
+      }
+    }
+
+    const userResponse = {
+      _id: pendingUser._id,
+      name: pendingUser.name,
+      email: pendingUser.email,
+      role: pendingUser.role,
+      isVerified: pendingUser.isVerified,
+      createdAt: pendingUser.createdAt
+    };
+
+    return res.status(201).json({ 
+      success: true, 
+      message: "User registered and email verified successfully!",
+      user: userResponse,
+    });
   
     } catch (error) {
       console.error('Registration error:', error);

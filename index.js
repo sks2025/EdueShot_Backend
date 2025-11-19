@@ -7,6 +7,8 @@ import videoRoutes from './routes/videoRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
 import courseRoutes from './routes/courseRoutes.js';
 import playlistRoutes from './routes/playlistRoute.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import fs from 'fs';
 import path from 'path';
 // Import routes
@@ -20,7 +22,8 @@ const dbURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/edu-spark';
 
 // Middleware
 app.use(cors({
-  origin: '*',
+  credentials: true,
+  origin: 'http://localhost:5173',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
   exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges']
@@ -158,6 +161,8 @@ app.use('/api/videos', videoRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/playlists', playlistRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
@@ -173,7 +178,9 @@ app.get('/', (req, res) => {
       quizzes: '/api/quizzes',
       videos: '/api/videos',
       courses: '/api/courses',
-      playlists: '/api/playlists'
+      playlists: '/api/playlists',
+      payments: '/api/payments',
+      admin: '/api/admin'
     }
   });
 });

@@ -53,5 +53,26 @@ const teacherOnly = (req, res, next) => {
   next();
 };
 
-export { authenticateToken, teacherOnly };
+// Admin-only middleware - checks if user has admin role
+const adminOnly = (req, res, next) => {
+  // First check if user is authenticated
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication required'
+    });
+  }
+
+  // Check if user has admin role
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Only administrators can perform this action.'
+    });
+  }
+
+  next();
+};
+
+export { authenticateToken, teacherOnly, adminOnly };
 export default authenticateToken;
