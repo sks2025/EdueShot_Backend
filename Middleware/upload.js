@@ -40,17 +40,34 @@ const videoUpload = upload.fields([
   { name: 'thumbnail', maxCount: 1 }
 ]);
 
+// Single image upload (for course thumbnails, etc.)
+const imageUpload = upload.single('thumbnail');
+
+// Multiple fields upload for course creation (thumbnail + other data)
+const courseUpload = upload.fields([
+  { name: 'thumbnail', maxCount: 1 }
+]);
+
 // Error handling middleware for multer
 const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File too large. Maximum size is 50MB.' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'File too large. Maximum size is 50MB.' 
+      });
     }
-    return res.status(400).json({ error: err.message });
+    return res.status(400).json({ 
+      success: false,
+      error: err.message 
+    });
   } else if (err) {
-    return res.status(400).json({ error: err.message });
+    return res.status(400).json({ 
+      success: false,
+      error: err.message 
+    });
   }
   next();
 };
 
-export { videoUpload, handleUploadError };
+export { videoUpload, imageUpload, courseUpload, handleUploadError };
