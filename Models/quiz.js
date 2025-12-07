@@ -110,6 +110,13 @@ const quizSchema = new mongoose.Schema({
     tags: {
         type: [String],
         default: []
+    },
+    // Quiz price for enrollment
+    price: {
+        type: Number,
+        required: false,
+        default: 0,
+        min: 0
     }
 }, { timestamps: true });
 

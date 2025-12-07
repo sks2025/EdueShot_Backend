@@ -2,6 +2,7 @@ import User from '../Models/userModel.js';
 import { Course } from '../Models/courseModel.js';
 import { Payment } from '../Models/paymentModel.js';
 import Quiz from '../Models/quiz.js';
+import QuizAttempt from '../Models/quizAttemptModel.js';
 import Video from '../Models/videoModel.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -1144,7 +1145,8 @@ const createQuiz = async (req, res) => {
       level,
       category,
       totalMarks,
-      tags
+      tags,
+      price
     } = req.body;
 
     // Validate required fields
@@ -1248,6 +1250,12 @@ const createQuiz = async (req, res) => {
     if (category) quizData.category = category;
     if (totalMarks) quizData.totalMarks = totalMarks;
     if (tags && Array.isArray(tags)) quizData.tags = tags;
+    if (price !== undefined) {
+      const priceNum = typeof price === 'string' ? parseFloat(price) : price;
+      if (!isNaN(priceNum) && priceNum >= 0) {
+        quizData.price = priceNum;
+      }
+    }
 
     const quiz = new Quiz(quizData);
     await quiz.save();
@@ -1337,7 +1345,8 @@ const updateQuiz = async (req, res) => {
       level,
       category,
       totalMarks,
-      tags
+      tags,
+      price
     } = req.body;
 
     const quiz = await Quiz.findById(id);
@@ -1454,6 +1463,13 @@ const updateQuiz = async (req, res) => {
 
     if (totalDuration) {
       quiz.totalDuration = totalDuration;
+    }
+
+    if (price !== undefined) {
+      const priceNum = typeof price === 'string' ? parseFloat(price) : price;
+      if (!isNaN(priceNum) && priceNum >= 0) {
+        quiz.price = priceNum;
+      }
     }
 
     await quiz.save();
@@ -2094,6 +2110,143 @@ const deleteTeacher = async (req, res) => {
   }
 };
 
+// Get Quiz Attempts (admin only - get all attempts for a specific quiz)
+const getQuizAttempts = async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { page = 1, limit = 100 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Verify quiz exists
+    const quiz = await Quiz.findById(quizId);
+    if (!quiz) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quiz not found'
+      });
+    }
+
+    // Get all attempts for this quiz
+    const attempts = await QuizAttempt.find({ quizId })
+      .populate('studentId', 'name email')
+      .sort({ score: -1, completedAt: 1 }) // Sort by score (highest first), then by completion time
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await QuizAttempt.countDocuments({ quizId });
+
+    // Add rank to each attempt
+    const attemptsWithRank = attempts.map((attempt, index) => ({
+      ...attempt.toObject(),
+      rank: skip + index + 1
+    }));
+
+    res.json({
+      success: true,
+      quiz: {
+        id: quiz._id,
+        title: quiz.title,
+        totalMarks: quiz.totalMarks
+      },
+      attempts: attemptsWithRank,
+      totalParticipants: total,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get quiz attempts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching quiz attempts',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get Quiz Rankings/Leaderboard (admin only - get top performers for a quiz)
+const getQuizRankings = async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { limit = 100 } = req.query; // Default to top 100
+
+    // Verify quiz exists
+    const quiz = await Quiz.findById(quizId);
+    if (!quiz) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quiz not found'
+      });
+    }
+
+    // Get all attempts sorted by score (highest first) and time (fastest first for same score)
+    const rankings = await QuizAttempt.find({ quizId })
+      .populate('studentId', 'name email')
+      .sort({ score: -1, timeSpent: 1 }) // Higher score first, then faster completion
+      .limit(parseInt(limit));
+
+    const total = await QuizAttempt.countDocuments({ quizId });
+
+    // Add rank and additional statistics
+    const rankingsWithDetails = rankings.map((attempt, index) => ({
+      rank: index + 1,
+      studentId: attempt.studentId._id,
+      studentName: attempt.studentId.name,
+      studentEmail: attempt.studentId.email,
+      score: attempt.score,
+      marksObtained: attempt.marksObtained,
+      totalMarks: attempt.totalMarks,
+      correctAnswers: attempt.correctAnswers,
+      wrongAnswers: attempt.wrongAnswers,
+      totalQuestions: attempt.totalQuestions,
+      timeSpent: attempt.timeSpent,
+      timeSpentMinutes: Math.round(attempt.timeSpent / 60),
+      completedAt: attempt.completedAt,
+      accuracy: ((attempt.correctAnswers / attempt.totalQuestions) * 100).toFixed(2)
+    }));
+
+    // Calculate statistics
+    const avgScore = rankings.length > 0 
+      ? (rankings.reduce((sum, a) => sum + a.score, 0) / rankings.length).toFixed(2)
+      : 0;
+    
+    const avgTimeSpent = rankings.length > 0
+      ? Math.round(rankings.reduce((sum, a) => sum + a.timeSpent, 0) / rankings.length)
+      : 0;
+
+    res.json({
+      success: true,
+      quiz: {
+        id: quiz._id,
+        title: quiz.title,
+        totalMarks: quiz.totalMarks,
+        totalQuestions: quiz.questions.length
+      },
+      rankings: rankingsWithDetails,
+      statistics: {
+        totalParticipants: total,
+        averageScore: parseFloat(avgScore),
+        averageTimeSpent: avgTimeSpent,
+        averageTimeSpentMinutes: Math.round(avgTimeSpent / 60),
+        highestScore: rankings.length > 0 ? rankings[0].score : 0,
+        lowestScore: rankings.length > 0 ? rankings[rankings.length - 1].score : 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Get quiz rankings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching quiz rankings',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 export default {
   adminLogin,
   createAdmin,
@@ -2123,6 +2276,8 @@ export default {
   createQuiz,
   updateQuiz,
   deleteQuiz,
-  getAllVideos
+  getAllVideos,
+  getQuizAttempts,
+  getQuizRankings
 };
 
