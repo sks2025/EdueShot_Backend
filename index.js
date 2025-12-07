@@ -23,7 +23,7 @@ const dbURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/edu-spark';
 // Middleware
 app.use(cors({
   credentials: true,
-  origin: 'http://localhost:5173',
+  origin: 'https://eduspark-admin.vercel.app',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
   exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges']
