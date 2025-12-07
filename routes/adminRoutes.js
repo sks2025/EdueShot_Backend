@@ -46,6 +46,12 @@ router.get('/payments', authenticateToken, adminOnly, adminController.getAllPaym
 // Quiz management (admin only)
 router.get('/quizzes', authenticateToken, adminOnly, adminController.getAllQuizzes);
 router.get('/quizzes/admin-created', authenticateToken, adminOnly, adminController.getAdminCreatedQuizzes);
+
+// Quiz attempts and rankings (admin only) - MUST come before :id route
+router.get('/quizzes/:quizId/attempts', authenticateToken, adminOnly, adminController.getQuizAttempts);
+router.get('/quizzes/:quizId/rankings', authenticateToken, adminOnly, adminController.getQuizRankings);
+
+// General quiz routes - MUST come after specific routes
 router.get('/quizzes/:id', authenticateToken, adminOnly, adminController.getQuizById);
 router.post('/quizzes', authenticateToken, adminOnly, adminController.createQuiz);
 router.put('/quizzes/:id', authenticateToken, adminOnly, adminController.updateQuiz);
