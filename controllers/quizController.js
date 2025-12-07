@@ -387,13 +387,20 @@ export const getStudentDashboardQuizzes = async (req, res) => {
         console.log('🎓 Student fetching quizzes...');
         console.log('📊 User:', req.user);
 
-        // Get all quizzes with only essential fields
+        // Get all quizzes with only essential fields - sort by newest first
         const quizzes = await Quiz.find()
-            .select('title category startDate startTime endDate endTime questions createdBy')
+            .select('title category startDate startTime endDate endTime questions createdBy createdAt')
             .populate("createdBy", "name")
-            .sort({ startDate: 1, startTime: 1 }); // Sort by start date and time
+            .sort({ createdAt: -1 }); // Sort by creation date, newest first
         
         console.log('📚 Total quizzes found:', quizzes.length);
+        if (quizzes.length > 0) {
+            console.log('🔍 First quiz:', {
+                title: quizzes[0].title,
+                createdAt: quizzes[0].createdAt,
+                startDate: quizzes[0].startDate
+            });
+        }
         
         // Transform to simplified format
         const simplifiedQuizzes = quizzes.map(quiz => {
@@ -409,11 +416,13 @@ export const getStudentDashboardQuizzes = async (req, res) => {
                 startDateTime: startDateTime,
                 numberOfQuestions: quiz.questions.length,
                 status: status,
-                teacherName: quiz.createdBy?.name || 'Unknown Teacher'
+                teacherName: quiz.createdBy?.name || 'Unknown Teacher',
+                createdAt: quiz.createdAt
             };
         });
         
-        console.log('✅ Simplified quizzes:', simplifiedQuizzes);
+        console.log('✅ Returning', simplifiedQuizzes.length, 'quizzes');
+        console.log('📋 Quiz IDs:', simplifiedQuizzes.map(q => ({ id: q._id, title: q.title, created: q.createdAt })));
         
         res.status(200).json({
             success: true,
