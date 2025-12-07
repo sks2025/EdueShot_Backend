@@ -384,11 +384,16 @@ export const getStudentDashboardQuizzes = async (req, res) => {
             });
         }
 
+        console.log('🎓 Student fetching quizzes...');
+        console.log('📊 User:', req.user);
+
         // Get all quizzes with only essential fields
         const quizzes = await Quiz.find()
-            .select('title category startDate startTime questions')
+            .select('title category startDate startTime endDate endTime questions createdBy')
             .populate("createdBy", "name")
             .sort({ startDate: 1, startTime: 1 }); // Sort by start date and time
+        
+        console.log('📚 Total quizzes found:', quizzes.length);
         
         // Transform to simplified format
         const simplifiedQuizzes = quizzes.map(quiz => {
@@ -407,6 +412,8 @@ export const getStudentDashboardQuizzes = async (req, res) => {
                 teacherName: quiz.createdBy?.name || 'Unknown Teacher'
             };
         });
+        
+        console.log('✅ Simplified quizzes:', simplifiedQuizzes);
         
         res.status(200).json({
             success: true,
