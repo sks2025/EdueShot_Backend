@@ -53,12 +53,22 @@ export const createCourse = async (req, res) => {
       });
     }
 
-    const { title, description, thumbnail, price, details } = req.body;
+    const { title, description, price, details } = req.body;
+    
+    // Get thumbnail from uploaded file or fallback to body (for backward compatibility)
+    const thumbnail = req.file ? req.file.filename : req.body.thumbnail;
 
     if (!title || !description || !thumbnail || !price) {
       return res.status(400).json({
         success: false,
         message: "Title, description, thumbnail and price are required",
+        debug: {
+          hasTitle: !!title,
+          hasDescription: !!description,
+          hasThumbnail: !!thumbnail,
+          hasPrice: !!price,
+          uploadedFile: req.file ? req.file.filename : 'No file uploaded'
+        }
       });
     }
 
