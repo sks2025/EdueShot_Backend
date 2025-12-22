@@ -925,6 +925,7 @@ export const getRecentPlayedQuizzes = async (req, res) => {
             const quiz = attempt.quizId;
             return {
                 attemptId: attempt._id,
+                quizId: quiz._id,
                 testName: quiz.title,
                 totalQuestions: attempt.totalQuestions,
                 correctAnswers: attempt.correctAnswers,
@@ -955,5 +956,136 @@ export const getRecentPlayedQuizzes = async (req, res) => {
     }
 };
 
+// ✅ Get Quiz Rankings/Leaderboard (for students - view rankings for a specific quiz)
+export const getQuizRankings = async (req, res) => {
+  try {
+    const { quizId } = req.params;
+    const { limit = 100 } = req.query; // Default to top 100
+    const studentId = req.user.userId; // Current logged-in student
 
+    // Verify quiz exists
+    const quiz = await Quiz.findById(quizId);
+    if (!quiz) {
+      return res.status(404).json({
+        success: false,
+        message: 'Quiz not found'
+      });
+    }
 
+    // Get all attempts sorted by score (highest first) and time (fastest first for same score)
+    const rankings = await QuizAttempt.find({ quizId })
+      .populate('studentId', 'name email')
+      .sort({ score: -1, timeSpent: 1 }) // Higher score first, then faster completion
+      .limit(parseInt(limit));
+
+    const total = await QuizAttempt.countDocuments({ quizId });
+
+    // Add rank and check if current student is in the list
+    let currentStudentRank = null;
+    const rankingsWithDetails = rankings.map((attempt, index) => {
+      const rank = index + 1;
+      const isCurrentStudent = attempt.studentId._id.toString() === studentId;
+      
+      if (isCurrentStudent) {
+        currentStudentRank = {
+          rank,
+          score: attempt.score,
+          marksObtained: attempt.marksObtained,
+          totalMarks: attempt.totalMarks,
+          correctAnswers: attempt.correctAnswers,
+          totalQuestions: attempt.totalQuestions,
+          timeSpent: attempt.timeSpent,
+          completedAt: attempt.completedAt
+        };
+      }
+
+      return {
+        rank,
+        studentId: attempt.studentId._id,
+        studentName: attempt.studentId.name,
+        studentEmail: attempt.studentId.email,
+        score: attempt.score,
+        marksObtained: attempt.marksObtained,
+        totalMarks: attempt.totalMarks,
+        correctAnswers: attempt.correctAnswers,
+        wrongAnswers: attempt.wrongAnswers,
+        totalQuestions: attempt.totalQuestions,
+        timeSpent: attempt.timeSpent,
+        timeSpentMinutes: Math.round(attempt.timeSpent / 60),
+        completedAt: attempt.completedAt,
+        accuracy: ((attempt.correctAnswers / attempt.totalQuestions) * 100).toFixed(2),
+        isCurrentStudent
+      };
+    });
+
+    // If current student didn't attempt yet or is not in top list, get their info
+    if (!currentStudentRank) {
+      const studentAttempt = await QuizAttempt.findOne({ 
+        quizId, 
+        studentId 
+      });
+
+      if (studentAttempt) {
+        // Calculate rank by counting students with better scores
+        const betterScoreCount = await QuizAttempt.countDocuments({
+          quizId,
+          $or: [
+            { score: { $gt: studentAttempt.score } },
+            { 
+              score: studentAttempt.score, 
+              timeSpent: { $lt: studentAttempt.timeSpent } 
+            }
+          ]
+        });
+
+        currentStudentRank = {
+          rank: betterScoreCount + 1,
+          score: studentAttempt.score,
+          marksObtained: studentAttempt.marksObtained,
+          totalMarks: studentAttempt.totalMarks,
+          correctAnswers: studentAttempt.correctAnswers,
+          totalQuestions: studentAttempt.totalQuestions,
+          timeSpent: studentAttempt.timeSpent,
+          completedAt: studentAttempt.completedAt
+        };
+      }
+    }
+
+    // Calculate statistics
+    const avgScore = rankings.length > 0 
+      ? (rankings.reduce((sum, a) => sum + a.score, 0) / rankings.length).toFixed(2)
+      : 0;
+    
+    const avgTimeSpent = rankings.length > 0
+      ? Math.round(rankings.reduce((sum, a) => sum + a.timeSpent, 0) / rankings.length)
+      : 0;
+
+    res.json({
+      success: true,
+      quiz: {
+        id: quiz._id,
+        title: quiz.title,
+        totalMarks: quiz.totalMarks,
+        totalQuestions: quiz.questions.length
+      },
+      rankings: rankingsWithDetails,
+      currentStudentRank,
+      statistics: {
+        totalParticipants: total,
+        averageScore: parseFloat(avgScore),
+        averageTimeSpent: avgTimeSpent,
+        averageTimeSpentMinutes: Math.round(avgTimeSpent / 60),
+        highestScore: rankings.length > 0 ? rankings[0].score : 0,
+        lowestScore: rankings.length > 0 ? rankings[rankings.length - 1].score : 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Get quiz rankings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching quiz rankings',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

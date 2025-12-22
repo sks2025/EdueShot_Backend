@@ -10,11 +10,12 @@ import {
   getCourseLikes,
 } from "../controllers/courseController.js";
 import authenticateToken from "../Middleware/userAuth.js";
+import { imageUpload } from "../Middleware/upload.js";
 
 const router = express.Router();
 
-// teacher creates
-router.post("/create", authenticateToken, createCourse);
+// teacher creates (with file upload)
+router.post("/create", authenticateToken, imageUpload, createCourse);
 
 // anyone can view
 router.get("/", getCourses);
