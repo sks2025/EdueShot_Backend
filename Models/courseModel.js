@@ -36,16 +36,6 @@ const courseSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
-  likes: {
-    type: Number,
-    default: 0,
-  },
-  likedBy: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-    },
-  ],
   playlists: [
     {
       type: mongoose.Schema.Types.ObjectId,

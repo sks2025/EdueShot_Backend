@@ -1,6 +1,29 @@
 import express from 'express';
 import authenticateToken from '../Middleware/userAuth.js';
-import { createQuiz, getAllQuizzes, getQuizById, deleteQuiz, getQuizzesForStudentDashboard, getStudentDashboardQuizzes, startQuiz, getQuizQuestion, submitAnswer, completeQuiz, getQuizResult, getRecentPlayedQuizzes, getQuizRankings } from '../controllers/quizController.js';
+import { 
+    createQuiz, 
+    getAllQuizzes, 
+    getQuizById, 
+    deleteQuiz, 
+    getQuizzesForStudentDashboard, 
+    getStudentDashboardQuizzes, 
+    startQuiz, 
+    getQuizQuestion, 
+    submitAnswer, 
+    completeQuiz, 
+    getQuizResult, 
+    getRecentPlayedQuizzes, 
+    getQuizRankings,
+    // Paid quiz functions
+    createQuizEnrollmentOrder,
+    verifyQuizEnrollmentPayment,
+    checkQuizEnrollment,
+    getPaidQuizzes,
+    declareQuizWinners,
+    getQuizWinners,
+    getStudentPrizes,
+    getTeacherQuizEarnings
+} from '../controllers/quizController.js';
 const router = express.Router();
 
 // Simple test route
@@ -11,6 +34,14 @@ router.get("/student-dashboard", authenticateToken, getQuizzesForStudentDashboar
 router.get("/student-dashboard/simple", authenticateToken, getStudentDashboardQuizzes); // Get simplified quizzes for student dashboard
 router.get("/recent-played", authenticateToken, getRecentPlayedQuizzes); // Get recent played quizzes for student
 
+// Paid quiz routes
+router.get("/paid", authenticateToken, getPaidQuizzes); // Get all paid quizzes
+router.post("/enroll/create-order", authenticateToken, createQuizEnrollmentOrder); // Create enrollment order
+router.post("/enroll/verify-payment", authenticateToken, verifyQuizEnrollmentPayment); // Verify enrollment payment
+router.get("/enroll/:quizId/status", authenticateToken, checkQuizEnrollment); // Check enrollment status
+router.get("/my-prizes", authenticateToken, getStudentPrizes); // Get student's won prizes
+router.get("/teacher/earnings", authenticateToken, getTeacherQuizEarnings); // Get teacher's quiz earnings
+
 // Quiz playing routes for students (MUST come before /:id route)
 router.post("/:quizId/start", authenticateToken, startQuiz); // Student starts a quiz
 router.get("/:quizId/question/:questionIndex", authenticateToken, getQuizQuestion); // Get specific question
@@ -18,6 +49,8 @@ router.post("/:quizId/question/:questionIndex/answer", authenticateToken, submit
 router.post("/:quizId/complete", authenticateToken, completeQuiz); // Complete quiz with all answers
 router.get("/:quizId/result", authenticateToken, getQuizResult); // Get quiz result after completion
 router.get("/:quizId/rankings", authenticateToken, getQuizRankings); // Get quiz rankings/leaderboard
+router.post("/:quizId/declare-winners", authenticateToken, declareQuizWinners); // Declare winners (teacher)
+router.get("/:quizId/winners", authenticateToken, getQuizWinners); // Get quiz winners
 
 // General quiz routes (MUST come after specific routes)
 router.get("/:id", authenticateToken, getQuizById); // Get quiz by ID
