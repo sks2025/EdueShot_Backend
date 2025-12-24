@@ -1,6 +1,26 @@
 import Quiz from "../Models/quiz.js";
 import User from "../Models/userModel.js";
 import QuizAttempt from "../Models/quizAttemptModel.js";
+import QuizEnrollment from "../Models/quizEnrollmentModel.js";
+import Razorpay from 'razorpay';
+import crypto from 'crypto';
+import dotenv from 'dotenv';
+dotenv.config();
+
+// Razorpay instance for quiz payments
+const getRazorpayInstance = () => {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    
+    if (!keyId || !keySecret) {
+        throw new Error('Razorpay credentials are not configured');
+    }
+    
+    return new Razorpay({
+        key_id: keyId,
+        key_secret: keySecret,
+    });
+};
 
 // Helper function to update quiz status based on timing
 const updateQuizStatus = (quiz) => {
@@ -33,7 +53,12 @@ export const createQuiz = async (req, res) => {
             endDate, 
             startTime, 
             endTime, 
-            totalDuration 
+            totalDuration,
+            isPaid,
+            entryFee,
+            prizePool,
+            prizeDistribution,
+            maxParticipants
         } = req.body;
 
         // Check if user is teacher
@@ -112,6 +137,22 @@ export const createQuiz = async (req, res) => {
             });
         }
 
+        // Validate paid quiz requirements
+        if (isPaid) {
+            if (!entryFee || entryFee <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Entry fee is required for paid quizzes and must be greater than 0."
+                });
+            }
+            if (!prizePool || prizePool <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Prize pool is required for paid quizzes and must be greater than 0."
+                });
+            }
+        }
+
         // Calculate total duration if not provided
         let calculatedDuration = totalDuration;
         if (!calculatedDuration) {
@@ -128,14 +169,24 @@ export const createQuiz = async (req, res) => {
             startTime,
             endTime,
             totalDuration: calculatedDuration,
-            createdBy: req.user.userId
+            createdBy: req.user.userId,
+            // Paid quiz fields
+            isPaid: isPaid || false,
+            entryFee: isPaid ? entryFee : 0,
+            prizePool: isPaid ? prizePool : 0,
+            prizeDistribution: isPaid && prizeDistribution ? prizeDistribution : {
+                first: 50,
+                second: 30,
+                third: 20
+            },
+            maxParticipants: maxParticipants || 0
         });
 
         await quiz.save();
         
         res.status(201).json({ 
             success: true,
-            message: "Quiz created successfully", 
+            message: isPaid ? "Paid quiz created successfully" : "Quiz created successfully", 
             quiz: {
                 ...quiz.toObject(),
                 startDateTime: startDateTime,
@@ -1088,4 +1139,628 @@ export const getQuizRankings = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+};
+// ✅ Create Quiz Enrollment Order (Student enrolls in paid quiz)
+export const createQuizEnrollmentOrder = async (req, res) => {
+    try {
+        const { quizId } = req.body;
+        const userId = req.user.userId;
+
+        // Check if user is student
+        if (req.user.role !== "student") {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can enroll in quizzes."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: 'Quiz not found'
+            });
+        }
+
+        // Check if quiz is paid
+        if (!quiz.isPaid) {
+            return res.status(400).json({
+                success: false,
+                message: 'This is a free quiz. No payment required.'
+            });
+        }
+
+        // Check quiz status
+        const status = updateQuizStatus(quiz);
+        if (status === 'ended') {
+            return res.status(400).json({
+                success: false,
+                message: 'This quiz has already ended.'
+            });
+        }
+
+        // Check if max participants reached
+        if (quiz.maxParticipants > 0 && quiz.enrolledStudents.length >= quiz.maxParticipants) {
+            return res.status(400).json({
+                success: false,
+                message: 'Maximum participants limit reached for this quiz.'
+            });
+        }
+
+        // Check if user has already enrolled
+        const existingEnrollment = await QuizEnrollment.findOne({
+            studentId: userId,
+            quizId: quizId,
+            status: 'completed'
+        });
+
+        if (existingEnrollment) {
+            return res.status(400).json({
+                success: false,
+                message: 'You have already enrolled in this quiz.'
+            });
+        }
+
+        // Also check if student is already in enrolledStudents array
+        if (quiz.enrolledStudents.includes(userId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'You have already enrolled in this quiz.'
+            });
+        }
+
+        // Convert amount to paise
+        const amountInPaise = quiz.entryFee * 100;
+
+        // Create Razorpay order
+        const razorpay = getRazorpayInstance();
+        const razorpayOrder = await razorpay.orders.create({
+            amount: amountInPaise,
+            currency: 'INR',
+            receipt: `quiz_${quizId}_${Date.now()}`,
+            notes: {
+                userId: userId.toString(),
+                quizId: quizId.toString(),
+                quizName: quiz.title,
+                type: 'quiz_enrollment'
+            }
+        });
+
+        // Save enrollment record
+        const enrollment = new QuizEnrollment({
+            studentId: userId,
+            quizId: quizId,
+            orderId: razorpayOrder.id,
+            razorpayOrderId: razorpayOrder.id,
+            amount: quiz.entryFee,
+            currency: 'INR',
+            status: 'pending'
+        });
+
+        await enrollment.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Enrollment order created successfully',
+            order: {
+                orderId: razorpayOrder.id,
+                amount: quiz.entryFee,
+                currency: 'INR',
+                key: process.env.RAZORPAY_KEY_ID,
+                name: 'Edu-Spark Quiz',
+                description: `Enrollment for: ${quiz.title}`,
+                prefill: {
+                    name: req.user.name || 'Student',
+                    email: req.user.email
+                },
+                quiz: {
+                    id: quiz._id,
+                    title: quiz.title,
+                    description: quiz.description,
+                    entryFee: quiz.entryFee,
+                    prizePool: quiz.prizePool,
+                    prizeDistribution: quiz.prizeDistribution,
+                    enrolledCount: quiz.enrolledStudents.length,
+                    maxParticipants: quiz.maxParticipants
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Create quiz enrollment order error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error creating enrollment order',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Verify Quiz Enrollment Payment
+export const verifyQuizEnrollmentPayment = async (req, res) => {
+    try {
+        const { razorpayOrderId, razorpayPaymentId, razorpaySignature, quizId } = req.body;
+        const userId = req.user.userId;
+
+        // Find the enrollment record
+        const enrollment = await QuizEnrollment.findOne({
+            razorpayOrderId,
+            studentId: userId,
+            status: 'pending'
+        });
+
+        if (!enrollment) {
+            return res.status(404).json({
+                success: false,
+                message: 'Enrollment not found or already verified'
+            });
+        }
+
+        // Verify the signature
+        const generatedSignature = crypto
+            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+            .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+            .digest('hex');
+
+        if (generatedSignature !== razorpaySignature) {
+            enrollment.status = 'failed';
+            await enrollment.save();
+
+            return res.status(400).json({
+                success: false,
+                message: 'Payment verification failed'
+            });
+        }
+
+        // Find the quiz and add student to enrolled list
+        const quiz = await Quiz.findById(enrollment.quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: 'Quiz not found'
+            });
+        }
+
+        // Add student to enrolled students if not already added
+        if (!quiz.enrolledStudents.includes(userId)) {
+            quiz.enrolledStudents.push(userId);
+            await quiz.save();
+        }
+
+        // Update enrollment record
+        enrollment.paymentId = razorpayPaymentId;
+        enrollment.razorpayPaymentId = razorpayPaymentId;
+        enrollment.razorpaySignature = razorpaySignature;
+        enrollment.status = 'completed';
+        await enrollment.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Successfully enrolled in quiz',
+            enrollment: {
+                id: enrollment._id,
+                quizId: quiz._id,
+                quizTitle: quiz.title,
+                amount: enrollment.amount,
+                status: enrollment.status,
+                enrolledAt: new Date(),
+                prizePool: quiz.prizePool,
+                prizeDistribution: quiz.prizeDistribution
+            }
+        });
+    } catch (error) {
+        console.error('Verify quiz enrollment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error verifying enrollment payment',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Check Quiz Enrollment Status
+export const checkQuizEnrollment = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const userId = req.user.userId;
+
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: 'Quiz not found'
+            });
+        }
+
+        // Check enrollment
+        const isEnrolled = quiz.enrolledStudents.includes(userId);
+        
+        // Get enrollment details if enrolled
+        let enrollmentDetails = null;
+        if (isEnrolled) {
+            enrollmentDetails = await QuizEnrollment.findOne({
+                studentId: userId,
+                quizId: quizId,
+                status: 'completed'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            quiz: {
+                id: quiz._id,
+                title: quiz.title,
+                isPaid: quiz.isPaid,
+                entryFee: quiz.entryFee,
+                prizePool: quiz.prizePool,
+                prizeDistribution: quiz.prizeDistribution,
+                enrolledCount: quiz.enrolledStudents.length,
+                maxParticipants: quiz.maxParticipants
+            },
+            isEnrolled,
+            enrollmentDetails: enrollmentDetails ? {
+                enrolledAt: enrollmentDetails.createdAt,
+                amount: enrollmentDetails.amount,
+                hasAttempted: enrollmentDetails.hasAttempted,
+                prizeWon: enrollmentDetails.prizeWon
+            } : null
+        });
+    } catch (error) {
+        console.error('Check quiz enrollment error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error checking enrollment status',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Get Paid Quizzes (For Students to browse)
+export const getPaidQuizzes = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        // Get all paid quizzes that haven't ended
+        const quizzes = await Quiz.find({ isPaid: true })
+            .populate('createdBy', 'name email')
+            .sort({ createdAt: -1 });
+
+        // Add status and enrollment info
+        const quizzesWithDetails = await Promise.all(quizzes.map(async (quiz) => {
+            const quizObj = quiz.toObject();
+            const status = updateQuizStatus(quiz);
+            
+            // Skip ended quizzes (optional - you can keep them)
+            // if (status === 'ended') return null;
+
+            const isEnrolled = quiz.enrolledStudents.includes(userId);
+            const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
+            const endDateTime = new Date(`${quiz.endDate.toISOString().split('T')[0]}T${quiz.endTime}`);
+
+            return {
+                ...quizObj,
+                status,
+                startDateTime,
+                endDateTime,
+                isActive: status === 'active',
+                isScheduled: status === 'scheduled',
+                isEnded: status === 'ended',
+                isEnrolled,
+                enrolledCount: quiz.enrolledStudents.length,
+                spotsLeft: quiz.maxParticipants > 0 
+                    ? quiz.maxParticipants - quiz.enrolledStudents.length 
+                    : null,
+                teacherName: quiz.createdBy?.name || 'Unknown Teacher'
+            };
+        }));
+
+        // Filter out nulls (if we skipped ended quizzes)
+        const validQuizzes = quizzesWithDetails.filter(q => q !== null);
+
+        res.status(200).json({
+            success: true,
+            message: 'Paid quizzes fetched successfully',
+            count: validQuizzes.length,
+            quizzes: validQuizzes
+        });
+    } catch (error) {
+        console.error('Get paid quizzes error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching paid quizzes',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Declare Quiz Winners (Auto-triggered after quiz ends or manually by teacher)
+export const declareQuizWinners = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+        const userId = req.user.userId;
+
+        // Find the quiz
+        const quiz = await Quiz.findById(quizId);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: 'Quiz not found'
+            });
+        }
+
+        // Only quiz creator or admin can declare winners
+        if (quiz.createdBy.toString() !== userId && req.user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only quiz creator can declare winners'
+            });
+        }
+
+        // Check if winners already declared
+        if (quiz.winnersDeclaerd) {
+            return res.status(400).json({
+                success: false,
+                message: 'Winners have already been declared for this quiz',
+                winners: quiz.winners
+            });
+        }
+
+        // Check if quiz is paid
+        if (!quiz.isPaid) {
+            return res.status(400).json({
+                success: false,
+                message: 'This is a free quiz. No prizes to distribute.'
+            });
+        }
+
+        // Check if quiz has ended
+        const status = updateQuizStatus(quiz);
+        if (status !== 'ended') {
+            return res.status(400).json({
+                success: false,
+                message: 'Winners can only be declared after the quiz ends.'
+            });
+        }
+
+        // Get top 3 attempts sorted by score and time
+        const topAttempts = await QuizAttempt.find({ quizId })
+            .populate('studentId', 'name email')
+            .sort({ score: -1, timeSpent: 1 })
+            .limit(3);
+
+        if (topAttempts.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No participants attempted this quiz.'
+            });
+        }
+
+        // Calculate prizes
+        const { first, second, third } = quiz.prizeDistribution;
+        const platformFee = quiz.prizePool * (quiz.platformCommission / 100);
+        const distributablePrize = quiz.prizePool - platformFee;
+
+        const winners = [];
+        const prizeAmounts = [
+            (distributablePrize * first) / 100,
+            (distributablePrize * second) / 100,
+            (distributablePrize * third) / 100
+        ];
+
+        for (let i = 0; i < topAttempts.length; i++) {
+            const attempt = topAttempts[i];
+            const prize = prizeAmounts[i] || 0;
+
+            winners.push({
+                studentId: attempt.studentId._id,
+                rank: i + 1,
+                prize: prize,
+                score: attempt.score,
+                isPaid: false
+            });
+
+            // Update enrollment with prize info
+            await QuizEnrollment.findOneAndUpdate(
+                { studentId: attempt.studentId._id, quizId },
+                {
+                    prizeWon: prize,
+                    finalRank: i + 1,
+                    finalScore: attempt.score
+                }
+            );
+        }
+
+        // Update quiz with winners
+        quiz.winners = winners;
+        quiz.winnersDeclaerd = true;
+        await quiz.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Winners declared successfully',
+            quiz: {
+                id: quiz._id,
+                title: quiz.title,
+                prizePool: quiz.prizePool,
+                platformCommission: platformFee,
+                distributedPrize: distributablePrize
+            },
+            winners: await Promise.all(winners.map(async (w, index) => {
+                const student = await User.findById(w.studentId).select('name email');
+                return {
+                    rank: w.rank,
+                    studentName: student?.name || 'Unknown',
+                    studentEmail: student?.email || 'Unknown',
+                    prize: w.prize,
+                    score: w.score
+                };
+            }))
+        });
+    } catch (error) {
+        console.error('Declare winners error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error declaring winners',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Get Quiz Winners
+export const getQuizWinners = async (req, res) => {
+    try {
+        const { quizId } = req.params;
+
+        const quiz = await Quiz.findById(quizId)
+            .populate('winners.studentId', 'name email');
+
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: 'Quiz not found'
+            });
+        }
+
+        if (!quiz.winnersDeclaerd) {
+            return res.status(400).json({
+                success: false,
+                message: 'Winners have not been declared yet'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            quiz: {
+                id: quiz._id,
+                title: quiz.title,
+                prizePool: quiz.prizePool,
+                prizeDistribution: quiz.prizeDistribution
+            },
+            winners: quiz.winners.map(w => ({
+                rank: w.rank,
+                studentName: w.studentId?.name || 'Unknown',
+                studentEmail: w.studentId?.email || 'Unknown',
+                prize: w.prize,
+                score: w.score,
+                isPaid: w.isPaid
+            }))
+        });
+    } catch (error) {
+        console.error('Get quiz winners error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching quiz winners',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Get Student's Won Prizes
+export const getStudentPrizes = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        // Get all enrollments where student won a prize
+        const enrollments = await QuizEnrollment.find({
+            studentId: userId,
+            prizeWon: { $gt: 0 }
+        }).populate('quizId', 'title prizePool');
+
+        const totalPrizeWon = enrollments.reduce((sum, e) => sum + e.prizeWon, 0);
+        const paidPrizes = enrollments.filter(e => e.prizePaid);
+        const unpaidPrizes = enrollments.filter(e => !e.prizePaid);
+
+        res.status(200).json({
+            success: true,
+            summary: {
+                totalPrizeWon,
+                paidAmount: paidPrizes.reduce((sum, e) => sum + e.prizeWon, 0),
+                unpaidAmount: unpaidPrizes.reduce((sum, e) => sum + e.prizeWon, 0),
+                totalWins: enrollments.length
+            },
+            prizes: enrollments.map(e => ({
+                quizId: e.quizId?._id,
+                quizTitle: e.quizId?.title || 'Unknown Quiz',
+                rank: e.finalRank,
+                score: e.finalScore,
+                prizeAmount: e.prizeWon,
+                isPaid: e.prizePaid,
+                paidAt: e.prizePaidAt,
+                wonAt: e.updatedAt
+            }))
+        });
+    } catch (error) {
+        console.error('Get student prizes error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching prizes',
+            error: error.message
+        });
+    }
+};
+
+// ✅ Get Teacher's Quiz Earnings
+export const getTeacherQuizEarnings = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        if (req.user.role !== 'teacher') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only teachers can view their quiz earnings'
+            });
+        }
+
+        // Get all paid quizzes created by this teacher
+        const quizzes = await Quiz.find({
+            createdBy: userId,
+            isPaid: true
+        });
+
+        let totalEarnings = 0;
+        let totalEnrollments = 0;
+        const quizEarnings = [];
+
+        for (const quiz of quizzes) {
+            const enrollmentCount = quiz.enrolledStudents.length;
+            const grossEarnings = enrollmentCount * quiz.entryFee;
+            const platformFee = grossEarnings * (quiz.platformCommission / 100);
+            
+            // Teacher gets platform fee from enrollments (not from prize pool)
+            // Prize pool goes to winners
+            const teacherEarnings = platformFee; // Platform takes commission, teacher gets it
+
+            totalEarnings += teacherEarnings;
+            totalEnrollments += enrollmentCount;
+
+            quizEarnings.push({
+                quizId: quiz._id,
+                title: quiz.title,
+                entryFee: quiz.entryFee,
+                prizePool: quiz.prizePool,
+                enrollmentCount,
+                grossEarnings,
+                platformFee,
+                teacherEarnings,
+                winnersDeclaered: quiz.winnersDeclaerd
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            summary: {
+                totalQuizzes: quizzes.length,
+                totalEnrollments,
+                totalEarnings
+            },
+            quizzes: quizEarnings
+        });
+    } catch (error) {
+        console.error('Get teacher quiz earnings error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching quiz earnings',
+            error: error.message
+        });
+    }
 };

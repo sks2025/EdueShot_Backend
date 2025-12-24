@@ -111,12 +111,63 @@ const quizSchema = new mongoose.Schema({
         type: [String],
         default: []
     },
-    // Quiz price for enrollment
+    // Quiz price for enrollment (0 = free)
     price: {
         type: Number,
         required: false,
         default: 0,
         min: 0
+    },
+    // Whether the quiz is paid
+    isPaid: {
+        type: Boolean,
+        default: false
+    },
+    // Entry fee for the quiz
+    entryFee: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    // Prize pool for winners
+    prizePool: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    // Prize distribution (percentage of prize pool for each position)
+    prizeDistribution: {
+        first: { type: Number, default: 50 },   // 50% to 1st place
+        second: { type: Number, default: 30 },  // 30% to 2nd place
+        third: { type: Number, default: 20 }    // 20% to 3rd place
+    },
+    // Maximum participants allowed
+    maxParticipants: {
+        type: Number,
+        default: 0 // 0 = unlimited
+    },
+    // Enrolled students
+    enrolledStudents: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    }],
+    // Winners after quiz completion
+    winners: [{
+        studentId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        rank: { type: Number },
+        prize: { type: Number },
+        score: { type: Number },
+        isPaid: { type: Boolean, default: false }
+    }],
+    // Whether winners have been declared
+    winnersDeclaerd: {
+        type: Boolean,
+        default: false
+    },
+    // Platform commission percentage
+    platformCommission: {
+        type: Number,
+        default: 10 // 10% platform fee
     }
 }, { timestamps: true });
 
