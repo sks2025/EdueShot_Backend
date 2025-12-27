@@ -25,18 +25,41 @@ const getVideoDuration = (videoPath) => {
 
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3002';
+  // Default to production server URL
+  const defaultUrl = 'http://93.127.213.176:3002';
+  let baseUrl = process.env.BASE_URL || defaultUrl;
+  
+  // Ensure BASE_URL has proper protocol
+  if (baseUrl && !baseUrl.startsWith('http')) {
+    console.warn('⚠️ Invalid BASE_URL in .env:', baseUrl, '- using default');
+    baseUrl = defaultUrl;
+  }
+  
   return `${baseUrl}/uploads/${filename}`;
 };
 
 // Helper function to ensure URL is full (for backward compatibility)
 const ensureFullUrl = (url) => {
   if (!url) return null;
-  if (url.startsWith('http')) return url; // Already full URL
+  
+  // Default base URL
+  const defaultUrl = 'http://93.127.213.176:3002';
+  
+  // Check if already full URL with proper protocol
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    // Fix localhost references
+    let fixedUrl = url.replace(/localhost/gi, '93.127.213.176');
+    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '93.127.213.176');
+    return fixedUrl;
+  }
+  
+  // Handle /uploads/ prefix
   if (url.startsWith('/uploads/')) {
     const filename = url.replace('/uploads/', '');
     return generateFileUrl(filename);
   }
+  
+  // Handle relative paths or just filenames
   return generateFileUrl(url);
 };
 
@@ -60,23 +83,26 @@ const uploadVideo = async (req, res) => {
 
     console.log('📋 Video data:', { title, description, category, customCategory });
 
-    // Get video duration to determine content type
+    // Get video duration and use contentType from request body
     const videoPath = path.join(process.cwd(), 'uploads', videoFile.filename);
-    let contentType = 'full'; // Default to full
+    let videoDuration = null;
     
     try {
-      const duration = await getVideoDuration(videoPath);
-      contentType = duration > 30 ? 'reel' : 'full';
-      console.log(`📏 Video duration: ${duration}s, Content type: ${contentType}`);
+      videoDuration = await getVideoDuration(videoPath);
+      console.log(`📏 Video duration: ${videoDuration}s`);
     } catch (durationError) {
-      console.warn('⚠️ Could not determine video duration, defaulting to full:', durationError.message);
-      // Keep default contentType as 'full'
+      console.warn('⚠️ Could not determine video duration:', durationError.message);
     }
+
+    // Use contentType from request body, default to 'full' if not provided
+    const requestContentType = req.body.contentType;
+    const contentType = requestContentType && ['full', 'reel'].includes(requestContentType) ? requestContentType : 'full';
+    console.log(`📹 Content type from request: ${requestContentType}, Using: ${contentType}`);
 
     const newVideo = new Video({
       title,
       description,
-      contentType, // Automatically determined based on duration
+      contentType, // Use contentType from request body
       category: category ? category.split(',') : [], // if array comes as CSV
       customCategory,
       videoUrl: generateFileUrl(videoFile.filename),
@@ -89,13 +115,20 @@ const uploadVideo = async (req, res) => {
     console.log('✅ Video saved successfully');
     
     res.status(201).json({ 
+      success: true,
       message: 'Video uploaded successfully', 
       video: newVideo,
-      duration: contentType === 'reel' ? '>30s' : '≤30s'
+      data: newVideo,
+      duration: videoDuration
     });
   } catch (err) {
     console.error('Upload video error:', err);
-    res.status(500).json({ error: 'Failed to upload video', details: err.message });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to upload video', 
+      message: err.message,
+      details: err.message 
+    });
   }
 };
 
@@ -139,28 +172,82 @@ const getVideoById = async (req, res) => {
 const getMyVideos = async (req, res) => {
   try {
     const userId = req.user.userId; // From JWT token
-    const videos = await Video.find({ uploadedBy: userId })
+
+    // Get query parameters for filtering and pagination
+    const contentType = req.query.type; // 'reel' or 'full'
+    const limit = parseInt(req.query.limit) || 10;
+    const page = parseInt(req.query.page) || 1;
+
+    // Build query
+    let query = { uploadedBy: userId };
+    if (contentType && ['reel', 'full'].includes(contentType)) {
+      query.contentType = contentType;
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Get total count for pagination
+    const totalVideos = await Video.countDocuments(query);
+    const totalPages = Math.ceil(totalVideos / limit);
+
+    const videos = await Video.find(query)
       .populate('uploadedBy', 'name email')
-      .sort({ createdAt: -1 }); // Latest first
-    
-    // Ensure all URLs are full URLs
-    const videosWithFullUrls = videos.map(video => ({
-      ...video.toObject(),
-      videoUrl: ensureFullUrl(video.videoUrl),
-      thumbnailUrl: ensureFullUrl(video.thumbnailUrl)
-    }));
-    
+      .sort({ createdAt: -1 }) // Latest first
+      .skip(skip)
+      .limit(limit);
+
+    // Ensure all URLs are full URLs and transform for streaming format
+    const videosWithFullUrls = videos.map(video => {
+      const videoObj = video.toObject();
+      const filename = videoObj.videoUrl.includes('/uploads/')
+        ? videoObj.videoUrl.split('/uploads/')[1]
+        : videoObj.videoUrl.replace('/uploads/', '');
+
+      return {
+        id: videoObj._id,
+        title: videoObj.title,
+        description: videoObj.description,
+        contentType: videoObj.contentType,
+        category: videoObj.category,
+        thumbnail: ensureFullUrl(videoObj.thumbnailUrl),
+        videoUrl: ensureFullUrl(videoObj.videoUrl),
+        filename: filename,
+        creator: {
+          id: videoObj.uploadedBy._id,
+          name: videoObj.uploadedBy.name,
+          email: videoObj.uploadedBy.email
+        },
+        stats: {
+          likes: videoObj.likes || 0
+        },
+        createdAt: videoObj.createdAt
+      };
+    });
+
     res.json({
       success: true,
-      count: videosWithFullUrls.length,
-      videos: videosWithFullUrls
+      data: {
+        videos: videosWithFullUrls,
+        pagination: {
+          currentPage: page,
+          limit,
+          totalVideos,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1
+        },
+        metadata: {
+          contentType: contentType || 'all'
+        }
+      }
     });
   } catch (err) {
     console.error('Get my videos error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to fetch your videos',
-      details: err.message 
+      details: err.message
     });
   }
 };
@@ -240,44 +327,62 @@ const streamVideo = async (req, res) => {
 const streamAllVideos = async (req, res) => {
   try {
     console.log('📱 Stream all videos request received');
-    
+
     // Get query parameters for filtering
     const contentType = req.query.type; // 'reel' or 'full'
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 10;
     const page = parseInt(req.query.page) || 1;
-    
+
     // Build query
     let query = {};
     if (contentType && ['reel', 'full'].includes(contentType)) {
       query.contentType = contentType;
     }
-    
+
     // Calculate pagination
     const skip = (page - 1) * limit;
-    
+
+    // Get total count for pagination
+    const totalVideos = await Video.countDocuments(query);
+    const totalPages = Math.ceil(totalVideos / limit);
+
     // Get videos from database
     const videos = await Video.find(query)
       .populate('uploadedBy', 'name email')
       .sort({ createdAt: -1 }) // Latest first
       .skip(skip)
       .limit(limit);
-    
+
     if (videos.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'No videos found' 
+      return res.json({
+        success: true,
+        data: {
+          videos: [],
+          pagination: {
+            currentPage: page,
+            limit,
+            totalVideos: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          },
+          metadata: {
+            contentType: contentType || 'all',
+            streamType: 'feed_format'
+          }
+        }
       });
     }
-    
+
     // Transform videos for streaming format
     const streamableVideos = videos.map(video => {
       const videoObj = video.toObject();
-      
+
       // Extract filename from videoUrl
-      const filename = videoObj.videoUrl.includes('/uploads/') 
-        ? videoObj.videoUrl.split('/uploads/')[1] 
+      const filename = videoObj.videoUrl.includes('/uploads/')
+        ? videoObj.videoUrl.split('/uploads/')[1]
         : videoObj.videoUrl.replace('/uploads/', '');
-      
+
       return {
         id: videoObj._id,
         title: videoObj.title,
@@ -298,9 +403,9 @@ const streamAllVideos = async (req, res) => {
         createdAt: videoObj.createdAt
       };
     });
-    
-    console.log(`📱 Streaming ${streamableVideos.length} videos`);
-    
+
+    console.log(`📱 Streaming ${streamableVideos.length} videos (Page ${page}/${totalPages})`);
+
     res.json({
       success: true,
       data: {
@@ -308,7 +413,10 @@ const streamAllVideos = async (req, res) => {
         pagination: {
           currentPage: page,
           limit,
-          totalVideos: streamableVideos.length
+          totalVideos,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1
         },
         metadata: {
           contentType: contentType || 'all',
@@ -316,13 +424,13 @@ const streamAllVideos = async (req, res) => {
         }
       }
     });
-    
+
   } catch (err) {
     console.error('📱 Stream all videos error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to stream videos', 
-      details: err.message 
+      error: 'Failed to stream videos',
+      details: err.message
     });
   }
 };

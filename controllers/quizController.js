@@ -63,10 +63,21 @@ export const createQuiz = async (req, res) => {
 
         // Check if user is teacher
         if (req.user.role !== "teacher") {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 success: false,
-                message: "Only teachers can create quizzes." 
+                message: "Only teachers can create quizzes."
             });
+        }
+
+        // Check paid quiz permission - only allowed if admin has enabled it
+        if (isPaid) {
+            const teacher = await User.findById(req.user.userId);
+            if (!teacher || !teacher.canCreatePaidQuiz) {
+                return res.status(403).json({
+                    success: false,
+                    message: "You are not authorized to create paid quizzes. Please contact admin for permission."
+                });
+            }
         }
 
         // Validate required fields
@@ -160,6 +171,9 @@ export const createQuiz = async (req, res) => {
             calculatedDuration = diffInMinutes;
         }
 
+        // Calculate total marks (1 mark per question by default)
+        const totalMarks = questions.length;
+
         const quiz = new Quiz({
             title,
             description,
@@ -169,6 +183,7 @@ export const createQuiz = async (req, res) => {
             startTime,
             endTime,
             totalDuration: calculatedDuration,
+            totalMarks: totalMarks,
             createdBy: req.user.userId,
             // Paid quiz fields
             isPaid: isPaid || false,
@@ -199,6 +214,59 @@ export const createQuiz = async (req, res) => {
             success: false,
             message: "Error creating quiz", 
             error: error.message 
+        });
+    }
+};
+
+// ✅ Get Teacher's Own Quizzes (My Created Quizzes)
+export const getMyQuizzes = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        // Check if user is teacher
+        if (req.user.role !== "teacher") {
+            return res.status(403).json({
+                success: false,
+                message: "Only teachers can access their created quizzes."
+            });
+        }
+
+        // Get only quizzes created by this teacher
+        const quizzes = await Quiz.find({ createdBy: userId })
+            .populate("createdBy", "name email")
+            .sort({ createdAt: -1 }); // Newest first
+
+        // Add status and timing information to each quiz
+        const quizzesWithStatus = quizzes.map(quiz => {
+            const quizObj = quiz.toObject();
+            const status = updateQuizStatus(quiz);
+            const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
+            const endDateTime = new Date(`${quiz.endDate.toISOString().split('T')[0]}T${quiz.endTime}`);
+
+            return {
+                ...quizObj,
+                status,
+                startDateTime,
+                endDateTime,
+                isActive: status === 'active',
+                isScheduled: status === 'scheduled',
+                isEnded: status === 'ended',
+                enrolledCount: quiz.enrolledStudents?.length || 0
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Your created quizzes fetched successfully",
+            count: quizzesWithStatus.length,
+            quizzes: quizzesWithStatus
+        });
+    } catch (error) {
+        console.error('Get my quizzes error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error fetching your quizzes",
+            error: error.message
         });
     }
 };
@@ -1497,7 +1565,7 @@ export const declareQuizWinners = async (req, res) => {
         }
 
         // Check if winners already declared
-        if (quiz.winnersDeclaerd) {
+        if (quiz.winnersDeclared) {
             return res.status(400).json({
                 success: false,
                 message: 'Winners have already been declared for this quiz',
@@ -1572,7 +1640,7 @@ export const declareQuizWinners = async (req, res) => {
 
         // Update quiz with winners
         quiz.winners = winners;
-        quiz.winnersDeclaerd = true;
+        quiz.winnersDeclared = true;
         await quiz.save();
 
         res.status(200).json({
@@ -1621,7 +1689,7 @@ export const getQuizWinners = async (req, res) => {
             });
         }
 
-        if (!quiz.winnersDeclaerd) {
+        if (!quiz.winnersDeclared) {
             return res.status(400).json({
                 success: false,
                 message: 'Winners have not been declared yet'
@@ -1742,7 +1810,7 @@ export const getTeacherQuizEarnings = async (req, res) => {
                 grossEarnings,
                 platformFee,
                 teacherEarnings,
-                winnersDeclaered: quiz.winnersDeclaerd
+                winnersDeclared: quiz.winnersDeclared
             });
         }
 

@@ -160,7 +160,7 @@ const quizSchema = new mongoose.Schema({
         isPaid: { type: Boolean, default: false }
     }],
     // Whether winners have been declared
-    winnersDeclaerd: {
+    winnersDeclared: {
         type: Boolean,
         default: false
     },

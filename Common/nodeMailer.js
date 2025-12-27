@@ -1,32 +1,50 @@
 import nodemailer from 'nodemailer';
 
-// ✅ Direct use (for quick testing ONLY – not for production)
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    secure: true,   // use SSL
-    port: 465,
-    auth: {
-        user: 'aman367787@gmail.com',       // Gmail address
-        pass: 'zhtm lmla tiep jgnc',        // 16-character Gmail App Password
-    },
-});
+// Validate required environment variables
+const getEmailConfig = () => {
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
 
-// ✅ Function to send email
+    if (!emailUser || !emailPass) {
+        throw new Error('EMAIL_USER and EMAIL_PASS environment variables are required');
+    }
+
+    return { emailUser, emailPass };
+};
+
+// Create transporter with environment variables
+const createTransporter = () => {
+    const { emailUser, emailPass } = getEmailConfig();
+
+    return nodemailer.createTransport({
+        service: 'gmail',
+        secure: true,
+        port: 465,
+        auth: {
+            user: emailUser,
+            pass: emailPass,
+        },
+    });
+};
+
+// Function to send email
 const sendEmail = async (to, subject, text, html = null) => {
     try {
+        const { emailUser } = getEmailConfig();
+        const transporter = createTransporter();
+
         const mailOptions = {
-            from: 'aman367787@gmail.com',   // sender address
-            to,                             // recipient(s)
+            from: emailUser,
+            to,
             subject,
             text,
             html: html || text
         };
 
         const info = await transporter.sendMail(mailOptions);
-       
         return info;
     } catch (error) {
-      
+        console.error('Email sending failed:', error.message);
         throw error;
     }
 };

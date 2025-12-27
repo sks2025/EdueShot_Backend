@@ -15,8 +15,12 @@ const router = express.Router();
 // teacher creates (with file upload)
 router.post("/create", authenticateToken, imageUpload, createCourse);
 
-// anyone can view
+// anyone can view all courses
 router.get("/", getCourses);
+
+// NOTE: /my-courses route is registered in index.js to avoid route conflicts
+
+// get single course by ID
 router.get("/:courseId", getCourseById);
 
 // student enrolls

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import userRoutes from './routes/userRoutes.js';
@@ -9,27 +10,67 @@ import courseRoutes from './routes/courseRoutes.js';
 import playlistRoutes from './routes/playlistRoute.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import { apiLimiter } from './Middleware/rateLimiter.js';
+import { getMyCourses } from './controllers/courseController.js';
+import authenticateToken from './Middleware/userAuth.js';
 import fs from 'fs';
 import path from 'path';
-// Import routes
 
 // Load environment variables
 dotenv.config();
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('📁 Created uploads directory:', uploadsDir);
+} else {
+  console.log('📁 Uploads directory exists:', uploadsDir);
+  // List files count on startup
+  const files = fs.readdirSync(uploadsDir);
+  console.log(`📂 Found ${files.length} files in uploads directory`);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3002;
 const dbURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/edu-spark';
 
-// Middleware
+// Allowed origins for CORS
+const allowedOrigins = [
+  'https://eduspark-admin.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:8081',
+  'exp://192.168.1.1:8081' // For Expo development
+];
+
+// Security middleware
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// CORS middleware
 app.use(cors({
   credentials: true,
-  origin: 'https://eduspark-admin.vercel.app',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('exp://')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all origins for now (mobile app compatibility)
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
   exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges']
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Apply general rate limiting to all API routes
+app.use('/api/', apiLimiter);
 
 // Serve static files from public directory
 app.use(express.static('public'));
@@ -155,6 +196,56 @@ app.get('/debug/file/:filename', (req, res) => {
   });
 });
 
+// Debug endpoint to list all uploads
+app.get('/debug/uploads', (req, res) => {
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+
+  console.log('🔍 Debug uploads request');
+  console.log('📁 Current working directory:', process.cwd());
+  console.log('📁 Uploads directory:', uploadsDir);
+
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      return res.json({
+        success: false,
+        error: 'Uploads directory does not exist',
+        cwd: process.cwd(),
+        uploadsDir: uploadsDir
+      });
+    }
+
+    const files = fs.readdirSync(uploadsDir);
+    const fileDetails = files.map(file => {
+      const filePath = path.join(uploadsDir, file);
+      const stats = fs.statSync(filePath);
+      return {
+        name: file,
+        size: stats.size,
+        created: stats.birthtime,
+        url: `http://93.127.213.176:3002/uploads/${file}`
+      };
+    });
+
+    res.json({
+      success: true,
+      cwd: process.cwd(),
+      uploadsDir: uploadsDir,
+      totalFiles: files.length,
+      files: fileDetails.slice(-20) // Last 20 files
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      cwd: process.cwd(),
+      uploadsDir: uploadsDir
+    });
+  }
+});
+
+// EXPLICIT route for teacher's courses - BEFORE courseRoutes to avoid conflict
+app.get('/api/courses/my-courses', authenticateToken, getMyCourses);
+
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/videos', videoRoutes);
@@ -205,7 +296,7 @@ const connectDB = async () => {
 connectDB();
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT,"0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
     console.log(`API endpoint: http://localhost:${PORT}`);
     console.log(`Users API: http://localhost:${PORT}/api/users`);

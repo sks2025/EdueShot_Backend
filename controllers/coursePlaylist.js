@@ -1,9 +1,43 @@
 import { CoursePlaylist } from "../Models/courseplaylistModel.js";
 import { Course } from "../Models/courseModel.js";
+import ffmpeg from 'fluent-ffmpeg';
+import ffprobe from 'ffprobe-static';
+import path from 'path';
+import fs from 'fs';
+
+// Set ffprobe path
+ffmpeg.setFfprobePath(ffprobe.path);
+
+// Maximum video duration in seconds (5 minutes)
+const MAX_VIDEO_DURATION_SECONDS = 300;
+
+// Helper function to get video duration in seconds
+const getVideoDuration = (videoPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) {
+        console.error('Error getting video duration:', err);
+        reject(err);
+      } else {
+        const duration = metadata.format.duration;
+        console.log(`Video duration: ${duration} seconds`);
+        resolve(duration);
+      }
+    });
+  });
+};
 
 // Get base URL configuration
 const getBaseUrl = () => {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3002';
+  // Use production IP for external access
+  const defaultUrl = 'http://93.127.213.176:3002';
+  const baseUrl = process.env.BASE_URL || defaultUrl;
+
+  // Ensure BASE_URL has proper protocol
+  if (baseUrl && !baseUrl.startsWith('http')) {
+    return defaultUrl;
+  }
+
   console.log('🌐 Base URL configured:', baseUrl);
   return baseUrl;
 };
@@ -53,11 +87,13 @@ const processPlaylistItem = (item) => {
     ...item.toObject ? item.toObject() : item,
     thumbnail: ensureFullUrl(item.thumbnail),
     videoFile: item.videoFile ? ensureFullUrl(item.videoFile) : null,
+    isFree: item.isFree || false,
   };
   
   console.log('📝 Processed playlist item URLs:', {
     thumbnail: processedItem.thumbnail,
-    videoFile: processedItem.videoFile
+    videoFile: processedItem.videoFile,
+    isFree: processedItem.isFree
   });
   
   return processedItem;
@@ -89,11 +125,24 @@ export const createPlaylistItem = async (req, res) => {
     const userId = req.user.userId;
     const userRole = req.user.role;
     const { courseId } = req.params;
-    const { title, description, contentType, category, duration } = req.body;
-    
+    let { title, description, contentType, category, duration, isFree } = req.body;
+
+    // Clean up values (remove quotes if present)
+    title = title?.replace(/^"|"$/g, '').trim();
+    description = description?.replace(/^"|"$/g, '').trim();
+    category = category?.replace(/^"|"$/g, '').trim();
+    contentType = contentType?.replace(/^"|"$/g, '').trim();
+
+    // Parse isFree to boolean
+    const isVideoFree = isFree === 'true' || isFree === true;
+
+    console.log('📦 Received playlist item data:', { title, description, contentType, category, courseId, isFree: isVideoFree });
+
     // Get uploaded files from multer
     const videoFile = req.files?.video?.[0]?.filename;
     const thumbnail = req.files?.thumbnail?.[0]?.filename;
+
+    console.log('📁 Uploaded files:', { videoFile, thumbnail });
 
     // Check if user is teacher
     if (userRole !== "teacher") {
@@ -135,12 +184,51 @@ export const createPlaylistItem = async (req, res) => {
       });
     }
 
-    // Validate videoFile for video/audio content
-    if ((contentType === "video" || contentType === "audio") && !videoFile) {
+    // Validate videoFile for video/audio content (contentType can be "video", "audio", "full", or "reel")
+    const isVideoContent = ["video", "audio", "full", "reel"].includes(contentType);
+    if (isVideoContent && !videoFile) {
       return res.status(400).json({
         success: false,
         message: "Video file is required for video/audio content type",
       });
+    }
+
+    console.log('📹 ContentType received:', contentType, 'isVideoContent:', isVideoContent);
+
+    // Check video duration (max 5 minutes = 300 seconds)
+    let videoDuration = null;
+    if (videoFile && isVideoContent) {
+      try {
+        const videoPath = path.join(process.cwd(), 'uploads', videoFile);
+        videoDuration = await getVideoDuration(videoPath);
+
+        if (videoDuration > MAX_VIDEO_DURATION_SECONDS) {
+          // Delete the uploaded file since it's too long
+          if (fs.existsSync(videoPath)) {
+            fs.unlinkSync(videoPath);
+          }
+          // Also delete the thumbnail if uploaded
+          if (thumbnail) {
+            const thumbPath = path.join(process.cwd(), 'uploads', thumbnail);
+            if (fs.existsSync(thumbPath)) {
+              fs.unlinkSync(thumbPath);
+            }
+          }
+
+          const durationMinutes = Math.floor(videoDuration / 60);
+          const durationSeconds = Math.floor(videoDuration % 60);
+
+          return res.status(400).json({
+            success: false,
+            message: `Video duration (${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}) exceeds maximum allowed duration of 5 minutes. Please upload a shorter video.`,
+          });
+        }
+
+        console.log(`✅ Video duration validated: ${videoDuration} seconds`);
+      } catch (durationError) {
+        console.warn('⚠️ Could not determine video duration:', durationError.message);
+        // Continue without duration validation if ffprobe fails
+      }
     }
 
     // Get the next order number for this course
@@ -158,10 +246,33 @@ export const createPlaylistItem = async (req, res) => {
       course: courseId,
       teacher: userId,
       order: nextOrder,
-      duration: duration || null,
+      duration: videoDuration || duration || null,
+      isFree: isVideoFree,
     });
 
     await playlistItem.save();
+
+    // Verify files exist after save
+    if (videoFile) {
+      const videoPath = path.join(process.cwd(), 'uploads', videoFile);
+      const videoExists = fs.existsSync(videoPath);
+      console.log(`✅ Video file verification: ${videoFile} exists: ${videoExists}`);
+      console.log(`📁 Full video path: ${videoPath}`);
+
+      if (!videoExists) {
+        console.error('❌ WARNING: Video file was not found after upload!');
+        // List files in uploads directory
+        const uploadsDir = path.join(process.cwd(), 'uploads');
+        const files = fs.readdirSync(uploadsDir);
+        console.log('📂 Files in uploads directory:', files.slice(-10)); // Last 10 files
+      }
+    }
+
+    if (thumbnail) {
+      const thumbPath = path.join(process.cwd(), 'uploads', thumbnail);
+      const thumbExists = fs.existsSync(thumbPath);
+      console.log(`✅ Thumbnail file verification: ${thumbnail} exists: ${thumbExists}`);
+    }
 
     // Process the playlist item to ensure all URLs are full
     const processedPlaylistItem = processPlaylistItem(playlistItem);
@@ -170,6 +281,11 @@ export const createPlaylistItem = async (req, res) => {
       success: true,
       message: "Playlist item created successfully",
       playlistItem: processedPlaylistItem,
+      debug: {
+        videoFileExists: videoFile ? fs.existsSync(path.join(process.cwd(), 'uploads', videoFile)) : null,
+        thumbnailExists: thumbnail ? fs.existsSync(path.join(process.cwd(), 'uploads', thumbnail)) : null,
+        uploadsDir: path.join(process.cwd(), 'uploads')
+      }
     });
   } catch (error) {
     console.error('Create playlist item error:', error);
@@ -213,17 +329,49 @@ export const getCoursePlaylist = async (req, res) => {
       .populate("teacher", "name email")
       .sort({ order: 1 });
 
-    // Process all playlist items to ensure URLs are full
-    const processedPlaylistItems = playlistItems.map(item => processPlaylistItem(item));
+    console.log('📹 Found playlist items:', playlistItems.length);
 
-    res.status(200).json({ 
-      success: true, 
+    // Process all playlist items to ensure URLs are full
+    const processedPlaylistItems = playlistItems.map(item => {
+      const processed = processPlaylistItem(item);
+
+      // Check if video file actually exists on disk
+      if (item.videoFile) {
+        const videoPath = path.join(process.cwd(), 'uploads', item.videoFile);
+        const fileExists = fs.existsSync(videoPath);
+        console.log(`📹 Video file check: ${item.videoFile}`);
+        console.log(`   Database value: ${item.videoFile}`);
+        console.log(`   Full path: ${videoPath}`);
+        console.log(`   File exists: ${fileExists}`);
+
+        if (!fileExists) {
+          // List files in uploads to help debug
+          const uploadsDir = path.join(process.cwd(), 'uploads');
+          if (fs.existsSync(uploadsDir)) {
+            const files = fs.readdirSync(uploadsDir);
+            console.log(`   Files in uploads (${files.length}):`, files.slice(-5));
+          }
+        }
+
+        // Add file existence info to response
+        processed.fileExists = fileExists;
+      }
+
+      return processed;
+    });
+
+    res.status(200).json({
+      success: true,
       course: {
         _id: course._id,
         title: course.title,
         description: course.description,
       },
-      playlistItems: processedPlaylistItems 
+      playlistItems: processedPlaylistItems,
+      debug: {
+        uploadsDir: path.join(process.cwd(), 'uploads'),
+        cwd: process.cwd()
+      }
     });
   } catch (error) {
     console.error('Get course playlist error:', error);
@@ -305,17 +453,50 @@ export const updatePlaylistItem = async (req, res) => {
       });
     }
 
-    const updates = req.body;
+    // Parse request body
+    let { title, description, category, contentType, isFree } = req.body;
     
-    // Add uploaded files to updates if they exist
+    // Clean up values (remove quotes if present)
+    title = title?.replace(/^"|"$/g, '').trim();
+    description = description?.replace(/^"|"$/g, '').trim();
+    category = category?.replace(/^"|"$/g, '').trim();
+    contentType = contentType?.replace(/^"|"$/g, '').trim();
+    
+    // Update fields if provided
+    if (title) playlistItem.title = title;
+    if (description) playlistItem.description = description;
+    if (category) playlistItem.category = category;
+    if (contentType) playlistItem.contentType = contentType;
+    
+    // Handle isFree field
+    if (isFree !== undefined) {
+      playlistItem.isFree = isFree === 'true' || isFree === true;
+    }
+    
+    // Delete old files and update with new ones if uploaded
     if (videoFile) {
-      updates.videoFile = videoFile;
-    }
-    if (thumbnail) {
-      updates.thumbnail = thumbnail;
+      // Delete old video file if exists
+      if (playlistItem.videoFile) {
+        const oldVideoPath = path.join(process.cwd(), 'uploads', playlistItem.videoFile);
+        if (fs.existsSync(oldVideoPath)) {
+          fs.unlinkSync(oldVideoPath);
+          console.log('🗑️ Deleted old video file:', playlistItem.videoFile);
+        }
+      }
+      playlistItem.videoFile = videoFile;
     }
     
-    Object.assign(playlistItem, updates);
+    if (thumbnail) {
+      // Delete old thumbnail if exists
+      if (playlistItem.thumbnail) {
+        const oldThumbPath = path.join(process.cwd(), 'uploads', playlistItem.thumbnail);
+        if (fs.existsSync(oldThumbPath)) {
+          fs.unlinkSync(oldThumbPath);
+          console.log('🗑️ Deleted old thumbnail:', playlistItem.thumbnail);
+        }
+      }
+      playlistItem.thumbnail = thumbnail;
+    }
 
     await playlistItem.save();
 
@@ -368,6 +549,23 @@ export const deletePlaylistItem = async (req, res) => {
         success: false,
         message: "You can only delete your own playlist items",
       });
+    }
+
+    // Delete associated files
+    if (playlistItem.videoFile) {
+      const videoPath = path.join(process.cwd(), 'uploads', playlistItem.videoFile);
+      if (fs.existsSync(videoPath)) {
+        fs.unlinkSync(videoPath);
+        console.log('🗑️ Deleted video file:', playlistItem.videoFile);
+      }
+    }
+    
+    if (playlistItem.thumbnail) {
+      const thumbPath = path.join(process.cwd(), 'uploads', playlistItem.thumbnail);
+      if (fs.existsSync(thumbPath)) {
+        fs.unlinkSync(thumbPath);
+        console.log('🗑️ Deleted thumbnail:', playlistItem.thumbnail);
+      }
     }
 
     await CoursePlaylist.deleteOne({ _id: itemId });

@@ -1,18 +1,19 @@
 import express from 'express';
 import authenticateToken from '../Middleware/userAuth.js';
-import { 
-    createQuiz, 
-    getAllQuizzes, 
-    getQuizById, 
-    deleteQuiz, 
-    getQuizzesForStudentDashboard, 
-    getStudentDashboardQuizzes, 
-    startQuiz, 
-    getQuizQuestion, 
-    submitAnswer, 
-    completeQuiz, 
-    getQuizResult, 
-    getRecentPlayedQuizzes, 
+import {
+    createQuiz,
+    getAllQuizzes,
+    getMyQuizzes,
+    getQuizById,
+    deleteQuiz,
+    getQuizzesForStudentDashboard,
+    getStudentDashboardQuizzes,
+    startQuiz,
+    getQuizQuestion,
+    submitAnswer,
+    completeQuiz,
+    getQuizResult,
+    getRecentPlayedQuizzes,
     getQuizRankings,
     // Paid quiz functions
     createQuizEnrollmentOrder,
@@ -30,6 +31,8 @@ const router = express.Router();
 
 router.post("/create", authenticateToken, createQuiz); // Teacher create quiz
 router.get("/all", authenticateToken, getAllQuizzes); // Get all quizzes
+router.get("/my-tests", authenticateToken, getMyQuizzes); // Get teacher's own quizzes
+router.get("/my-quizzes", authenticateToken, getMyQuizzes); // Alias for my-tests
 router.get("/student-dashboard", authenticateToken, getQuizzesForStudentDashboard); // Get quizzes for student dashboard (detailed)
 router.get("/student-dashboard/simple", authenticateToken, getStudentDashboardQuizzes); // Get simplified quizzes for student dashboard
 router.get("/recent-played", authenticateToken, getRecentPlayedQuizzes); // Get recent played quizzes for student

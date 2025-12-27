@@ -3,10 +3,10 @@ import mongoose from 'mongoose';
 const coursePlaylistSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
-  contentType: { 
-    type: String, 
-    enum: ['video', 'audio', 'document', 'text'], 
-    required: true 
+  contentType: {
+    type: String,
+    enum: ['video', 'audio', 'document', 'text', 'full', 'reel'],
+    required: true
   },
   category: { type: String, required: true },
   videoFile: { type: String }, // Filename of uploaded video/audio file
@@ -25,7 +25,8 @@ const coursePlaylistSchema = new mongoose.Schema({
   duration: { type: Number }, // Duration in seconds
   views: { type: Number, default: 0 },
   likes: { type: Number, default: 0 },
-  likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  isFree: { type: Boolean, default: false } // First intro video can be free
 }, { timestamps: true });
 
 export const CoursePlaylist = mongoose.model('CoursePlaylist', coursePlaylistSchema);

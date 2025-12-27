@@ -533,7 +533,15 @@ const getCourseById = async (req, res) => {
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
   if (!filename) return null;
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3002';
+  const defaultUrl = 'http://93.127.213.176:3002';
+  let baseUrl = process.env.BASE_URL || defaultUrl;
+  
+  // Ensure BASE_URL has proper protocol
+  if (baseUrl && !baseUrl.startsWith('http')) {
+    console.warn('⚠️ Invalid BASE_URL in adminController, using default:', defaultUrl);
+    baseUrl = defaultUrl;
+  }
+  
   return `${baseUrl}/uploads/${filename}`;
 };
 
@@ -2247,6 +2255,79 @@ const getQuizRankings = async (req, res) => {
   }
 };
 
+// Toggle teacher's paid quiz permission
+const toggleTeacherPaidQuizPermission = async (req, res) => {
+  try {
+    const { teacherId } = req.params;
+    const { canCreatePaidQuiz } = req.body;
+
+    if (typeof canCreatePaidQuiz !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'canCreatePaidQuiz must be a boolean value'
+      });
+    }
+
+    const teacher = await User.findById(teacherId);
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    if (teacher.role !== 'teacher') {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not a teacher'
+      });
+    }
+
+    teacher.canCreatePaidQuiz = canCreatePaidQuiz;
+    await teacher.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Paid quiz permission ${canCreatePaidQuiz ? 'enabled' : 'disabled'} for teacher`,
+      data: {
+        teacherId: teacher._id,
+        name: teacher.name,
+        email: teacher.email,
+        canCreatePaidQuiz: teacher.canCreatePaidQuiz
+      }
+    });
+  } catch (error) {
+    console.error('Toggle paid quiz permission error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while updating permission',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get all teachers with their paid quiz permission status
+const getTeachersPaidQuizStatus = async (req, res) => {
+  try {
+    const teachers = await User.find({ role: 'teacher', isVerified: true })
+      .select('name email canCreatePaidQuiz createdAt')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: teachers.length,
+      data: teachers
+    });
+  } catch (error) {
+    console.error('Get teachers paid quiz status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching teachers',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 export default {
   adminLogin,
   createAdmin,
@@ -2278,6 +2359,8 @@ export default {
   deleteQuiz,
   getAllVideos,
   getQuizAttempts,
-  getQuizRankings
+  getQuizRankings,
+  toggleTeacherPaidQuizPermission,
+  getTeachersPaidQuizStatus
 };
 

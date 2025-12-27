@@ -32,6 +32,10 @@ router.get('/teachers/:id', authenticateToken, adminOnly, adminController.getTea
 router.put('/teachers/:id', authenticateToken, adminOnly, adminController.updateTeacher);
 router.delete('/teachers/:id', authenticateToken, adminOnly, adminController.deleteTeacher);
 
+// Teacher paid quiz permission management (admin only)
+router.get('/teachers/paid-quiz-status/all', authenticateToken, adminOnly, adminController.getTeachersPaidQuizStatus);
+router.put('/teachers/:teacherId/paid-quiz-permission', authenticateToken, adminOnly, adminController.toggleTeacherPaidQuizPermission);
+
 // Course management (admin only)
 router.get('/courses', authenticateToken, adminOnly, adminController.getAllCourses);
 router.get('/courses/admin-created', authenticateToken, adminOnly, adminController.getAdminCreatedCourses);

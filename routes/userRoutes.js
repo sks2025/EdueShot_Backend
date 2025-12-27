@@ -1,32 +1,43 @@
 import express from 'express';
 import userController from '../controllers/userController.js';
 import authenticateToken from '../Middleware/userAuth.js';
+import { profilePicUpload, handleUploadError } from '../Middleware/upload.js';
+import {
+  loginLimiter,
+  otpLimiter,
+  passwordResetLimiter,
+  registrationLimiter
+} from '../Middleware/rateLimiter.js';
 
 const router = express.Router();
 
 // Debug route to test if routes are working
 router.get('/test', (req, res) => {
   res.json({ message: 'Routes are working!', timestamp: new Date().toISOString() });
-  
 });
 
-// User routes
-router.post('/register', userController.register);
-router.post('/verify', userController.verifyOTP);
-router.post('/send-otp', userController.sendOtp);
-router.post('/resend-otp', userController.resendOTP);
-router.post('/login', userController.login);
+// Auth routes (public) with rate limiting
+router.post('/register', registrationLimiter, userController.register);
+router.post('/verify', otpLimiter, userController.verifyOTP);
+router.post('/send-otp', otpLimiter, userController.sendOtp);
+router.post('/resend-otp', otpLimiter, userController.resendOTP);
+router.post('/login', loginLimiter, userController.login);
+router.post('/refresh-token', userController.refreshToken);
+router.post('/logout', authenticateToken, userController.logout);
+
+// Password reset routes (public) with rate limiting
+router.post('/forgot-password', passwordResetLimiter, userController.forgotPassword);
+router.post('/verify-password-reset-otp', otpLimiter, userController.verifyPasswordResetOTP);
+router.post('/reset-password', passwordResetLimiter, userController.resetPassword);
 
 // Protected profile routes (require authentication)
 router.get('/get/:id', authenticateToken, userController.getProfile);
 router.put('/update/:id', authenticateToken, userController.updateUserProfile);
 router.get('/profile', authenticateToken, userController.getMyProfile);
 router.put('/profile', authenticateToken, userController.updateProfile);
+router.post('/upload-profile-pic', authenticateToken, profilePicUpload, handleUploadError, userController.uploadProfilePic);
 router.delete('/delete/:id', authenticateToken, userController.deleteUserProfile);
-router.post('/forgot-password', userController.forgotPassword);
-router.post('/verify-password-reset-otp', userController.verifyPasswordResetOTP);
-router.post('/reset-password', userController.resetPassword);
-router.get('/all', userController.getAllUsers);
+router.get('/all', authenticateToken, userController.getAllUsers);
 
 
 export default router;
