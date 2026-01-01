@@ -21,8 +21,13 @@ router.get('/videos/:id', authenticateToken, VideoController.getVideoById);
 router.get('/videos/:id/stream', VideoController.streamVideo);
 router.get('/my-videos', authenticateToken, VideoController.getMyVideos);
 router.delete('/videos/:id', authenticateToken, teacherOnly, VideoController.deleteVideo); // Only teachers can delete videos
+
+// Like, View, Share endpoints
 router.put('/videos/:id/like', authenticateToken, VideoController.likeVideo);
 router.get('/videos/:id/likes', VideoController.getLikes);
+router.put('/videos/:id/view', authenticateToken, VideoController.incrementView); // Track video view
+router.put('/videos/:id/share', authenticateToken, VideoController.trackShare); // Track video share
+router.get('/videos/:id/stats', authenticateToken, VideoController.getVideoStats); // Get all stats
 
 
 export default router;

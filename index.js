@@ -10,6 +10,8 @@ import courseRoutes from './routes/courseRoutes.js';
 import playlistRoutes from './routes/playlistRoute.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import teacherVerificationRoutes from './routes/teacherVerificationRoutes.js';
 import { apiLimiter } from './Middleware/rateLimiter.js';
 import { getMyCourses } from './controllers/courseController.js';
 import authenticateToken from './Middleware/userAuth.js';
@@ -222,7 +224,7 @@ app.get('/debug/uploads', (req, res) => {
         name: file,
         size: stats.size,
         created: stats.birthtime,
-        url: `http://93.127.213.176:3002/uploads/${file}`
+        url: `http://192.168.43.18:3002/uploads/${file}`
       };
     });
 
@@ -254,6 +256,8 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/verification', teacherVerificationRoutes);
 
 // Basic route
 app.get('/', (req, res) => {

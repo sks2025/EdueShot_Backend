@@ -39,5 +39,17 @@ router.post('/upload-profile-pic', authenticateToken, profilePicUpload, handleUp
 router.delete('/delete/:id', authenticateToken, userController.deleteUserProfile);
 router.get('/all', authenticateToken, userController.getAllUsers);
 
+// Account Deletion (Soft Delete) Routes
+router.post('/request-deletion', authenticateToken, userController.requestAccountDeletion); // User requests account deletion
+router.post('/cancel-deletion', authenticateToken, userController.cancelDeletionRequest); // User cancels deletion request
+router.get('/deletion-status', authenticateToken, userController.getDeletionStatus); // Get deletion request status
+
+// Admin Routes for Account Management
+router.get('/admin/deletion-requests', authenticateToken, userController.getDeletionRequests); // Get all deletion requests
+router.put('/admin/approve-deletion/:userId', authenticateToken, userController.approveAccountDeletion); // Approve deletion
+router.put('/admin/reject-deletion/:userId', authenticateToken, userController.rejectAccountDeletion); // Reject deletion
+router.put('/admin/reactivate/:userId', authenticateToken, userController.reactivateAccount); // Reactivate account
+router.get('/admin/notifications', authenticateToken, userController.getAdminNotifications); // Get admin notifications
+router.put('/admin/notifications/:notificationId/read', authenticateToken, userController.markNotificationRead); // Mark as read
 
 export default router;

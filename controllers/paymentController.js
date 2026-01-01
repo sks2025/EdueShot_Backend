@@ -2,6 +2,7 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { Payment } from '../Models/paymentModel.js';
 import { Course } from '../Models/courseModel.js';
+import { Withdrawal } from '../Models/withdrawalModel.js';
 import User from '../Models/userModel.js';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -333,6 +334,289 @@ export const refundPayment = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error processing refund',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Get Teacher Earnings (payments received for their courses)
+export const getTeacherEarnings = async (req, res) => {
+  try {
+    const teacherId = req.user.userId;
+
+    // Get all courses by this teacher
+    const teacherCourses = await Course.find({ teacher: teacherId }).select('_id title');
+    const courseIds = teacherCourses.map(course => course._id);
+
+    // Get all completed payments for these courses
+    const payments = await Payment.find({
+      courseId: { $in: courseIds },
+      status: 'completed'
+    })
+      .populate('courseId', 'title price thumbnail')
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 });
+
+    // Calculate totals
+    const totalEarnings = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    // Get withdrawals
+    const withdrawals = await Withdrawal.find({ userId: teacherId });
+    const totalWithdrawn = withdrawals
+      .filter(w => w.status === 'completed')
+      .reduce((sum, w) => sum + w.amount, 0);
+    const pendingWithdrawals = withdrawals
+      .filter(w => w.status === 'pending')
+      .reduce((sum, w) => sum + w.amount, 0);
+
+    const availableBalance = totalEarnings - totalWithdrawn - pendingWithdrawals;
+
+    const formattedPayments = payments.map(payment => ({
+      id: payment._id,
+      type: 'earning',
+      title: 'Course Sale',
+      description: payment.courseId?.title || 'Course',
+      amount: payment.amount,
+      status: payment.status,
+      student: payment.userId,
+      course: payment.courseId,
+      date: payment.createdAt,
+      icon: '💰'
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: 'Teacher earnings fetched successfully',
+      summary: {
+        totalEarnings,
+        totalWithdrawn,
+        pendingWithdrawals,
+        availableBalance,
+        totalCourses: teacherCourses.length,
+        totalSales: payments.length
+      },
+      earnings: formattedPayments
+    });
+  } catch (error) {
+    console.error('Get teacher earnings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching earnings',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Request Withdrawal (Teacher only)
+export const requestWithdrawal = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { amount, paymentMethod, bankDetails, upiId } = req.body;
+
+    // Validate amount
+    if (!amount || amount < 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Minimum withdrawal amount is ₹100'
+      });
+    }
+
+    // Check available balance
+    const teacherCourses = await Course.find({ teacher: userId }).select('_id');
+    const courseIds = teacherCourses.map(course => course._id);
+
+    const payments = await Payment.find({
+      courseId: { $in: courseIds },
+      status: 'completed'
+    });
+    const totalEarnings = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    const withdrawals = await Withdrawal.find({ userId });
+    const totalWithdrawn = withdrawals
+      .filter(w => w.status === 'completed')
+      .reduce((sum, w) => sum + w.amount, 0);
+    const pendingWithdrawals = withdrawals
+      .filter(w => w.status === 'pending')
+      .reduce((sum, w) => sum + w.amount, 0);
+
+    const availableBalance = totalEarnings - totalWithdrawn - pendingWithdrawals;
+
+    if (amount > availableBalance) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Available: ₹${availableBalance}`
+      });
+    }
+
+    // Create withdrawal request
+    const withdrawal = new Withdrawal({
+      userId,
+      amount,
+      paymentMethod,
+      bankDetails: paymentMethod === 'bank_transfer' ? bankDetails : undefined,
+      upiId: paymentMethod === 'upi' ? upiId : undefined,
+      status: 'pending'
+    });
+
+    await withdrawal.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Withdrawal request submitted successfully',
+      withdrawal: {
+        id: withdrawal._id,
+        amount: withdrawal.amount,
+        status: withdrawal.status,
+        paymentMethod: withdrawal.paymentMethod,
+        createdAt: withdrawal.createdAt
+      }
+    });
+  } catch (error) {
+    console.error('Request withdrawal error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error requesting withdrawal',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Get User Withdrawals
+export const getUserWithdrawals = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const withdrawals = await Withdrawal.find({ userId })
+      .sort({ createdAt: -1 });
+
+    const formattedWithdrawals = withdrawals.map(w => ({
+      id: w._id,
+      type: 'withdrawal',
+      title: 'Withdrawal',
+      description: w.paymentMethod === 'bank_transfer' ? 'Bank Transfer' :
+                   w.paymentMethod === 'upi' ? 'UPI Transfer' : 'Paytm',
+      amount: -w.amount,
+      status: w.status,
+      paymentMethod: w.paymentMethod,
+      transactionId: w.transactionId,
+      date: w.createdAt,
+      processedAt: w.processedAt,
+      icon: '🏦'
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: 'Withdrawals fetched successfully',
+      withdrawals: formattedWithdrawals,
+      count: formattedWithdrawals.length
+    });
+  } catch (error) {
+    console.error('Get user withdrawals error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching withdrawals',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Get Complete History (for both students and teachers)
+export const getHistory = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+
+    let history = [];
+
+    if (userRole === 'student') {
+      // Get student's course purchases
+      const payments = await Payment.find({ userId })
+        .populate('courseId', 'title price thumbnail teacher')
+        .sort({ createdAt: -1 });
+
+      history = payments.map(p => ({
+        id: p._id,
+        type: 'purchase',
+        title: 'Course Purchase',
+        description: p.courseId?.title || 'Course',
+        amount: p.amount,
+        status: p.status,
+        course: p.courseId,
+        date: p.createdAt,
+        icon: '🎓'
+      }));
+
+    } else if (userRole === 'teacher') {
+      // Get teacher's earnings
+      const teacherCourses = await Course.find({ teacher: userId }).select('_id title');
+      const courseIds = teacherCourses.map(course => course._id);
+
+      const earnings = await Payment.find({
+        courseId: { $in: courseIds },
+        status: 'completed'
+      })
+        .populate('courseId', 'title price thumbnail')
+        .populate('userId', 'name email')
+        .sort({ createdAt: -1 });
+
+      const earningsHistory = earnings.map(p => ({
+        id: p._id,
+        type: 'earning',
+        title: 'Course Sale',
+        description: p.courseId?.title || 'Course',
+        amount: p.amount,
+        status: 'completed',
+        student: { name: p.userId?.name, email: p.userId?.email },
+        date: p.createdAt,
+        icon: '💰'
+      }));
+
+      // Get teacher's withdrawals
+      const withdrawals = await Withdrawal.find({ userId })
+        .sort({ createdAt: -1 });
+
+      const withdrawalsHistory = withdrawals.map(w => ({
+        id: w._id,
+        type: 'withdrawal',
+        title: 'Withdrawal',
+        description: w.paymentMethod === 'bank_transfer' ? 'Bank Transfer' :
+                     w.paymentMethod === 'upi' ? 'UPI Transfer' : 'Paytm',
+        amount: -w.amount,
+        status: w.status,
+        paymentMethod: w.paymentMethod,
+        transactionId: w.transactionId,
+        date: w.createdAt,
+        icon: '🏦'
+      }));
+
+      // Combine and sort by date
+      history = [...earningsHistory, ...withdrawalsHistory].sort(
+        (a, b) => new Date(b.date) - new Date(a.date)
+      );
+    }
+
+    // Calculate summary
+    const totalPurchases = history.filter(h => h.type === 'purchase').reduce((sum, h) => sum + h.amount, 0);
+    const totalEarnings = history.filter(h => h.type === 'earning').reduce((sum, h) => sum + h.amount, 0);
+    const totalWithdrawals = history.filter(h => h.type === 'withdrawal').reduce((sum, h) => sum + Math.abs(h.amount), 0);
+
+    res.status(200).json({
+      success: true,
+      message: 'History fetched successfully',
+      summary: {
+        totalPurchases,
+        totalEarnings,
+        totalWithdrawals,
+        balance: totalEarnings - totalWithdrawals
+      },
+      history,
+      count: history.length
+    });
+  } catch (error) {
+    console.error('Get history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching history',
       error: error.message
     });
   }

@@ -26,7 +26,7 @@ const getVideoDuration = (videoPath) => {
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
   // Default to production server URL
-  const defaultUrl = 'http://93.127.213.176:3002';
+  const defaultUrl = 'http://192.168.43.18:3002';
   let baseUrl = process.env.BASE_URL || defaultUrl;
   
   // Ensure BASE_URL has proper protocol
@@ -43,13 +43,13 @@ const ensureFullUrl = (url) => {
   if (!url) return null;
   
   // Default base URL
-  const defaultUrl = 'http://93.127.213.176:3002';
+  const defaultUrl = 'http://192.168.43.18:3002';
   
   // Check if already full URL with proper protocol
   if (url.startsWith('http://') || url.startsWith('https://')) {
     // Fix localhost references
-    let fixedUrl = url.replace(/localhost/gi, '93.127.213.176');
-    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '93.127.213.176');
+    let fixedUrl = url.replace(/localhost/gi, '192.168.43.18');
+    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '192.168.43.18');
     return fixedUrl;
   }
   
@@ -134,7 +134,7 @@ const uploadVideo = async (req, res) => {
 
 const getAllVideos = async (req, res) => {
   try {
-    const videos = await Video.find().populate('uploadedBy', 'name email');
+    const videos = await Video.find().populate('uploadedBy', 'name email profilePic');
     
     // Ensure all URLs are full URLs
     const videosWithFullUrls = videos.map(video => ({
@@ -152,7 +152,7 @@ const getAllVideos = async (req, res) => {
 
 const getVideoById = async (req, res) => {
   try {
-    const video = await Video.findById(req.params.id).populate('uploadedBy', 'name email');
+    const video = await Video.findById(req.params.id).populate('uploadedBy', 'name email profilePic');
     if (!video) return res.status(404).json({ error: 'Video not found' });
     
     // Ensure URLs are full URLs
@@ -192,7 +192,7 @@ const getMyVideos = async (req, res) => {
     const totalPages = Math.ceil(totalVideos / limit);
 
     const videos = await Video.find(query)
-      .populate('uploadedBy', 'name email')
+      .populate('uploadedBy', 'name email profilePic')
       .sort({ createdAt: -1 }) // Latest first
       .skip(skip)
       .limit(limit);
@@ -216,7 +216,8 @@ const getMyVideos = async (req, res) => {
         creator: {
           id: videoObj.uploadedBy._id,
           name: videoObj.uploadedBy.name,
-          email: videoObj.uploadedBy.email
+          email: videoObj.uploadedBy.email,
+          profilePic: ensureFullUrl(videoObj.uploadedBy.profilePic)
         },
         stats: {
           likes: videoObj.likes || 0
@@ -348,7 +349,7 @@ const streamAllVideos = async (req, res) => {
 
     // Get videos from database
     const videos = await Video.find(query)
-      .populate('uploadedBy', 'name email')
+      .populate('uploadedBy', 'name email profilePic')
       .sort({ createdAt: -1 }) // Latest first
       .skip(skip)
       .limit(limit);
@@ -395,11 +396,15 @@ const streamAllVideos = async (req, res) => {
         creator: {
           id: videoObj.uploadedBy._id,
           name: videoObj.uploadedBy.name,
-          email: videoObj.uploadedBy.email
+          email: videoObj.uploadedBy.email,
+          profilePic: ensureFullUrl(videoObj.uploadedBy.profilePic)
         },
         stats: {
-          likes: videoObj.likes || 0
+          likes: videoObj.likes || 0,
+          views: videoObj.views || 0,
+          shares: videoObj.shares || 0
         },
+        likedBy: videoObj.likedBy || [],
         createdAt: videoObj.createdAt
       };
     });
@@ -530,16 +535,34 @@ const likeVideo = async (req, res) => {
 const getLikes = async (req, res) => {
   try {
     const { id } = req.params; // Video ID from URL
-    const video = await Video.findById(id).select('likes'); // only return likes field
+    const video = await Video.findById(id).select('likes likedBy'); // return likes and likedBy fields
 
     if (!video) {
       return res.status(404).json({ success: false, message: "Video not found" });
     }
 
+    // Check if user is authenticated to determine isLiked
+    let isLiked = false;
+    const authHeader = req.headers['authorization'];
+    if (authHeader) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const jwt = await import('jsonwebtoken');
+        const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
+        if (decoded && decoded.userId) {
+          isLiked = video.likedBy.includes(decoded.userId);
+        }
+      } catch (tokenError) {
+        // Token invalid or expired, isLiked stays false
+        console.log('Token verification failed in getLikes:', tokenError.message);
+      }
+    }
+
     res.json({
       success: true,
       videoId: id,
-      likes: video.likes
+      likes: video.likes,
+      isLiked: isLiked
     });
   } catch (error) {
     console.error(error);
@@ -551,25 +574,25 @@ const getLikes = async (req, res) => {
 const getVideosByType = async (req, res) => {
   try {
     const { type } = req.params; // 'reel' or 'full'
-    
+
     if (!['reel', 'full'].includes(type)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Invalid content type. Must be 'reel' or 'full'" 
+      return res.status(400).json({
+        success: false,
+        message: "Invalid content type. Must be 'reel' or 'full'"
       });
     }
 
     const videos = await Video.find({ contentType: type })
-      .populate('uploadedBy', 'name email')
+      .populate('uploadedBy', 'name email profilePic')
       .sort({ createdAt: -1 }); // Latest first
-    
+
     // Ensure all URLs are full URLs
     const videosWithFullUrls = videos.map(video => ({
       ...video.toObject(),
       videoUrl: ensureFullUrl(video.videoUrl),
       thumbnailUrl: ensureFullUrl(video.thumbnailUrl)
     }));
-    
+
     res.json({
       success: true,
       contentType: type,
@@ -578,15 +601,108 @@ const getVideosByType = async (req, res) => {
     });
   } catch (err) {
     console.error('Get videos by type error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to fetch videos',
-      details: err.message 
+      details: err.message
     });
   }
 };
 
+// Increment video view count
+// PUT /api/videos/:id/view
+const incrementView = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId; // Optional - can be undefined for non-logged users
 
+    const video = await Video.findById(id);
+    if (!video) {
+      return res.status(404).json({ success: false, message: "Video not found" });
+    }
+
+    // If user is logged in, check if already viewed
+    if (userId) {
+      const alreadyViewed = video.viewedBy.includes(userId);
+      if (!alreadyViewed) {
+        video.views += 1;
+        video.viewedBy.push(userId);
+        await video.save();
+      }
+    } else {
+      // For non-logged users, just increment
+      video.views += 1;
+      await video.save();
+    }
+
+    res.json({
+      success: true,
+      message: "View recorded",
+      views: video.views
+    });
+  } catch (err) {
+    console.error('Increment view error:', err);
+    res.status(500).json({ success: false, message: "Server error", details: err.message });
+  }
+};
+
+// Track video share
+// PUT /api/videos/:id/share
+const trackShare = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+
+    const video = await Video.findById(id);
+    if (!video) {
+      return res.status(404).json({ success: false, message: "Video not found" });
+    }
+
+    // Increment share count
+    video.shares += 1;
+    if (userId && !video.sharedBy.includes(userId)) {
+      video.sharedBy.push(userId);
+    }
+    await video.save();
+
+    res.json({
+      success: true,
+      message: "Share recorded",
+      shares: video.shares
+    });
+  } catch (err) {
+    console.error('Track share error:', err);
+    res.status(500).json({ success: false, message: "Server error", details: err.message });
+  }
+};
+
+// Get video stats (likes, views, shares)
+// GET /api/videos/:id/stats
+const getVideoStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+
+    const video = await Video.findById(id).select('likes views shares likedBy');
+    if (!video) {
+      return res.status(404).json({ success: false, message: "Video not found" });
+    }
+
+    res.json({
+      success: true,
+      videoId: id,
+      stats: {
+        likes: video.likes,
+        views: video.views,
+        shares: video.shares,
+        isLiked: userId ? video.likedBy.includes(userId) : false
+      }
+    });
+  } catch (err) {
+    console.error('Get video stats error:', err);
+    res.status(500).json({ success: false, message: "Server error", details: err.message });
+  }
+};
 
 export default {
   uploadVideo,
@@ -598,5 +714,8 @@ export default {
   deleteVideo,
   likeVideo,
   getLikes,
-  getVideosByType
+  getVideosByType,
+  incrementView,
+  trackShare,
+  getVideoStats
 };

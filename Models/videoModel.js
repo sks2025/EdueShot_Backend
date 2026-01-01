@@ -13,7 +13,13 @@ const videoSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   // Like functionality
   likes: { type: Number, default: 0 },
-  likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  // View tracking
+  views: { type: Number, default: 0 },
+  viewedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  // Share tracking
+  shares: { type: Number, default: 0 },
+  sharedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 });
 
 export default mongoose.model('Video', videoSchema);

@@ -1,4 +1,5 @@
 import User from '../Models/userModel.js';
+import AdminNotification from '../Models/adminNotificationModel.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../Middleware/userAuth.js';
@@ -379,6 +380,22 @@ const login = async (req, res) => {
       });
     }
 
+    // Check if account is active (soft delete check)
+    if (!user.isActive) {
+      console.log('Login attempt by inactive user:', email);
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact support for assistance.',
+        accountDeactivated: true
+      });
+    }
+
+    // Check if account deletion is pending
+    if (user.deletionRequested && user.deletionStatus === 'pending') {
+      console.log('Login by user with pending deletion request:', email);
+      // Allow login but warn user
+    }
+
     // Check password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
@@ -390,16 +407,18 @@ const login = async (req, res) => {
     }
 
     // Generate JWT tokens for verified user
+    // Access token: 7 days for better mobile app experience
     const accessToken = jwt.sign(
       { userId: user._id, email: user.email, role: user.role, type: 'access' },
       getJwtSecret(),
-      { expiresIn: '15m' }
+      { expiresIn: '7d' }
     );
 
+    // Refresh token: 30 days for seamless re-authentication
     const refreshToken = jwt.sign(
       { userId: user._id, email: user.email, role: user.role, type: 'refresh' },
       getJwtSecret(),
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
     console.log('Successful login for verified user:', email);
@@ -409,14 +428,17 @@ const login = async (req, res) => {
       message: 'Login successful',
       token: accessToken,
       refreshToken,
-      expiresIn: 900, // 15 minutes in seconds
+      expiresIn: 604800, // 7 days in seconds
       user: {
         id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         isVerified: user.isVerified,
-        canCreatePaidQuiz: user.canCreatePaidQuiz || false
+        canCreatePaidQuiz: user.canCreatePaidQuiz || false,
+        profilePic: user.profilePic || null,
+        mobile: user.mobile || null
       }
     });
 
@@ -1244,17 +1266,17 @@ const refreshToken = async (req, res) => {
       });
     }
 
-    // Generate new access token
+    // Generate new access token (7 days for mobile app)
     const accessToken = jwt.sign(
       { userId: user._id, email: user.email, role: user.role, type: 'access' },
       getJwtSecret(),
-      { expiresIn: '15m' }
+      { expiresIn: '7d' }
     );
 
     res.json({
       success: true,
       token: accessToken,
-      expiresIn: 900
+      expiresIn: 604800 // 7 days in seconds
     });
 
   } catch (error) {
@@ -1288,7 +1310,7 @@ const logout = async (req, res) => {
 const uploadProfilePic = async (req, res) => {
   try {
     const userId = req.user?.userId;
-    
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -1305,7 +1327,7 @@ const uploadProfilePic = async (req, res) => {
     }
 
     // Get BASE_URL from environment
-    const BASE_URL = process.env.BASE_URL || 'http://93.127.213.176:3002';
+    const BASE_URL = process.env.BASE_URL || 'http://192.168.43.18:3002';
     const profilePicUrl = `${BASE_URL}/uploads/${req.file.filename}`;
 
     // Update user profile pic
@@ -1336,6 +1358,460 @@ const uploadProfilePic = async (req, res) => {
   }
 };
 
+// ============================================
+// SOFT DELETE / ACCOUNT DELETION FUNCTIONS
+// ============================================
+
+// Request account deletion (for students and teachers)
+const requestAccountDeletion = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { reason, password } = req.body;
+
+    // Validation
+    if (!reason || reason.trim().length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a reason for account deletion (minimum 10 characters)'
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter your password to confirm account deletion request'
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid password. Please enter correct password to confirm.'
+      });
+    }
+
+    // Check if already requested
+    if (user.deletionRequested && user.deletionStatus === 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Account deletion request already pending. Please wait for admin review.',
+        requestedAt: user.deletionRequestedAt
+      });
+    }
+
+    // Update user with deletion request
+    user.deletionRequested = true;
+    user.deletionRequestedAt = new Date();
+    user.deletionReason = reason.trim();
+    user.deletionStatus = 'pending';
+    await user.save();
+
+    // Create admin notification
+    const notification = new AdminNotification({
+      type: 'account_deletion',
+      title: `Account Deletion Request - ${user.role.charAt(0).toUpperCase() + user.role.slice(1)}`,
+      message: `${user.name} (${user.email}) has requested to delete their ${user.role} account.`,
+      fromUser: user._id,
+      data: {
+        reason: reason.trim(),
+        userRole: user.role,
+        userEmail: user.email,
+        userName: user.name
+      },
+      status: 'unread'
+    });
+    await notification.save();
+
+    console.log(`Account deletion requested by ${user.email} (${user.role})`);
+
+    res.json({
+      success: true,
+      message: 'Account deletion request submitted successfully. Your account will be reviewed by admin.',
+      deletionStatus: 'pending',
+      requestedAt: user.deletionRequestedAt
+    });
+
+  } catch (error) {
+    console.error('Request account deletion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during account deletion request'
+    });
+  }
+};
+
+// Cancel account deletion request (by user)
+const cancelDeletionRequest = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if there's a pending request
+    if (!user.deletionRequested || user.deletionStatus !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending deletion request found'
+      });
+    }
+
+    // Cancel the request
+    user.deletionRequested = false;
+    user.deletionRequestedAt = null;
+    user.deletionReason = null;
+    user.deletionStatus = 'none';
+    await user.save();
+
+    // Update admin notification status
+    await AdminNotification.updateMany(
+      { fromUser: userId, type: 'account_deletion', status: 'unread' },
+      { status: 'actioned', actionTaken: 'none', actionNote: 'Cancelled by user' }
+    );
+
+    console.log(`Account deletion request cancelled by ${user.email}`);
+
+    res.json({
+      success: true,
+      message: 'Account deletion request cancelled successfully'
+    });
+
+  } catch (error) {
+    console.error('Cancel deletion request error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Get deletion request status (for user)
+const getDeletionStatus = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+
+    const user = await User.findById(userId).select('deletionRequested deletionRequestedAt deletionReason deletionStatus isActive');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      deletionRequested: user.deletionRequested,
+      deletionStatus: user.deletionStatus,
+      deletionRequestedAt: user.deletionRequestedAt,
+      deletionReason: user.deletionReason,
+      isActive: user.isActive
+    });
+
+  } catch (error) {
+    console.error('Get deletion status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// ============================================
+// ADMIN FUNCTIONS FOR ACCOUNT MANAGEMENT
+// ============================================
+
+// Get all deletion requests (admin only)
+const getDeletionRequests = async (req, res) => {
+  try {
+    const { status } = req.query; // 'pending', 'approved', 'rejected', 'all'
+
+    let filter = { deletionRequested: true };
+    if (status && status !== 'all') {
+      filter.deletionStatus = status;
+    }
+
+    const requests = await User.find(filter)
+      .select('name email role deletionRequestedAt deletionReason deletionStatus isActive createdAt')
+      .sort({ deletionRequestedAt: -1 });
+
+    res.json({
+      success: true,
+      count: requests.length,
+      requests
+    });
+
+  } catch (error) {
+    console.error('Get deletion requests error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Approve account deletion (admin only)
+const approveAccountDeletion = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const adminId = req.user?.userId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.deletionRequested || user.deletionStatus !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending deletion request for this user'
+      });
+    }
+
+    // Soft delete - deactivate account
+    user.isActive = false;
+    user.deletionStatus = 'approved';
+    user.deletionApprovedBy = adminId;
+    user.deletionApprovedAt = new Date();
+    user.deactivatedAt = new Date();
+    await user.save();
+
+    // Update admin notification
+    await AdminNotification.updateMany(
+      { fromUser: userId, type: 'account_deletion', status: { $ne: 'actioned' } },
+      { status: 'actioned', handledBy: adminId, handledAt: new Date(), actionTaken: 'approved' }
+    );
+
+    console.log(`Account deletion approved for ${user.email} by admin ${adminId}`);
+
+    res.json({
+      success: true,
+      message: `Account for ${user.email} has been deactivated`,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        deletionStatus: user.deletionStatus
+      }
+    });
+
+  } catch (error) {
+    console.error('Approve account deletion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Reject account deletion (admin only)
+const rejectAccountDeletion = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { note } = req.body;
+    const adminId = req.user?.userId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.deletionRequested || user.deletionStatus !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending deletion request for this user'
+      });
+    }
+
+    // Reject the request
+    user.deletionStatus = 'rejected';
+    user.deletionApprovedBy = adminId;
+    user.deletionApprovedAt = new Date();
+    await user.save();
+
+    // Update admin notification
+    await AdminNotification.updateMany(
+      { fromUser: userId, type: 'account_deletion', status: { $ne: 'actioned' } },
+      { status: 'actioned', handledBy: adminId, handledAt: new Date(), actionTaken: 'rejected', actionNote: note || 'Rejected by admin' }
+    );
+
+    console.log(`Account deletion rejected for ${user.email} by admin ${adminId}`);
+
+    res.json({
+      success: true,
+      message: `Account deletion request rejected for ${user.email}`,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        deletionStatus: user.deletionStatus
+      }
+    });
+
+  } catch (error) {
+    console.error('Reject account deletion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Reactivate account (admin only)
+const reactivateAccount = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const adminId = req.user?.userId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account is already active'
+      });
+    }
+
+    // Reactivate account
+    user.isActive = true;
+    user.deletionRequested = false;
+    user.deletionRequestedAt = null;
+    user.deletionReason = null;
+    user.deletionStatus = 'none';
+    user.deactivatedAt = null;
+    await user.save();
+
+    console.log(`Account reactivated for ${user.email} by admin ${adminId}`);
+
+    res.json({
+      success: true,
+      message: `Account for ${user.email} has been reactivated`,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive
+      }
+    });
+
+  } catch (error) {
+    console.error('Reactivate account error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Get admin notifications (admin only)
+const getAdminNotifications = async (req, res) => {
+  try {
+    const { status, type, page = 1, limit = 20 } = req.query;
+
+    let filter = {};
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+    if (type && type !== 'all') {
+      filter.type = type;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const notifications = await AdminNotification.find(filter)
+      .populate('fromUser', 'name email role profilePic')
+      .populate('handledBy', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await AdminNotification.countDocuments(filter);
+    const unreadCount = await AdminNotification.countDocuments({ status: 'unread' });
+
+    res.json({
+      success: true,
+      notifications,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        totalNotifications: total,
+        unreadCount
+      }
+    });
+
+  } catch (error) {
+    console.error('Get admin notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+// Mark notification as read (admin only)
+const markNotificationRead = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+
+    const notification = await AdminNotification.findByIdAndUpdate(
+      notificationId,
+      { status: 'read' },
+      { new: true }
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Notification marked as read',
+      notification
+    });
+
+  } catch (error) {
+    console.error('Mark notification read error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
 export default {
   register,
   verifyOTP,
@@ -1353,5 +1829,16 @@ export default {
   sendOtp,
   refreshToken,
   logout,
-  uploadProfilePic
+  uploadProfilePic,
+  // Account deletion (soft delete)
+  requestAccountDeletion,
+  cancelDeletionRequest,
+  getDeletionStatus,
+  // Admin functions
+  getDeletionRequests,
+  approveAccountDeletion,
+  rejectAccountDeletion,
+  reactivateAccount,
+  getAdminNotifications,
+  markNotificationRead
 };

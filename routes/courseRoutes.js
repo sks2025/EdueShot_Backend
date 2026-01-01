@@ -3,6 +3,7 @@ import {
   createCourse,
   getCourses,
   getCourseById,
+  getMyCourses,
   enrollCourse,
   updateCourse,
   deleteCourse,
@@ -18,7 +19,9 @@ router.post("/create", authenticateToken, imageUpload, createCourse);
 // anyone can view all courses
 router.get("/", getCourses);
 
-// NOTE: /my-courses route is registered in index.js to avoid route conflicts
+// IMPORTANT: /my-courses MUST be defined BEFORE /:courseId to avoid route conflicts
+// This route gets teacher's own created courses
+router.get("/my-courses", authenticateToken, getMyCourses);
 
 // get single course by ID
 router.get("/:courseId", getCourseById);

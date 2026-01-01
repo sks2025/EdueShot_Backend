@@ -1,11 +1,12 @@
 import { Course } from "../Models/courseModel.js";
 import User from "../Models/userModel.js";
+import { createNotification } from './notificationController.js';
 import path from 'path';
 import fs from 'fs';
 
 // Get base URL configuration - use production server IP
 const getBaseUrl = () => {
-  const defaultUrl = 'http://93.127.213.176:3002';
+  const defaultUrl = 'http://192.168.43.18:3002';
   const baseUrl = process.env.BASE_URL || defaultUrl;
 
   // Ensure BASE_URL has proper protocol
@@ -32,8 +33,8 @@ const ensureFullUrl = (url) => {
   // Already full URL - fix localhost references
   if (url.startsWith('http')) {
     // Replace localhost with actual server IP
-    let fixedUrl = url.replace(/localhost/gi, '93.127.213.176');
-    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '93.127.213.176');
+    let fixedUrl = url.replace(/localhost/gi, '192.168.43.18');
+    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '192.168.43.18');
     console.log('✅ Already full URL (fixed):', fixedUrl);
     return fixedUrl;
   }
@@ -136,7 +137,7 @@ export const getMyCourses = async (req, res) => {
 
     // Get only courses created by this teacher
     const courses = await Course.find({ teacher: userId })
-      .populate("teacher", "name email role")
+      .populate("teacher", "name email role profilePic")
       .populate("students", "name email")
       .sort({ createdAt: -1 }); // Sort by newest first
 
@@ -157,6 +158,7 @@ export const getMyCourses = async (req, res) => {
         ...courseObj,
         thumbnail: ensureFullUrl(courseObj.thumbnail),
         thumbnailExists: thumbnailExists,
+        studentsCount: courseObj.students?.length || 0,
         enrolledCount: courseObj.students?.length || 0
       };
     });
@@ -177,10 +179,11 @@ export const getMyCourses = async (req, res) => {
 };
 
 // ✅ Get All Courses (visible to all users - students, teachers, admins)
+// Shows all courses from all teachers
 export const getCourses = async (req, res) => {
   try {
     const courses = await Course.find()
-      .populate("teacher", "name email role")
+      .populate("teacher", "name email role profilePic teacherVerification")
       .populate("students", "name email")
       .sort({ createdAt: -1 }); // Sort by newest first
 
@@ -199,10 +202,16 @@ export const getCourses = async (req, res) => {
         thumbnailExists = true;
       }
 
+      // Remove verification details from response
+      if (courseObj.teacher) {
+        delete courseObj.teacher.teacherVerification;
+      }
+
       return {
         ...courseObj,
         thumbnail: ensureFullUrl(courseObj.thumbnail),
         thumbnailExists: thumbnailExists,
+        studentsCount: courseObj.students?.length || 0,
         // Add flag to indicate if course is admin-created (no teacher)
         isAdminCreated: !courseObj.teacher,
         teacher: courseObj.teacher || null // Explicitly set to null if no teacher
@@ -229,7 +238,7 @@ export const getCourseById = async (req, res) => {
     }
 
     const course = await Course.findById(courseId)
-      .populate("teacher", "name email role")
+      .populate("teacher", "name email role profilePic")
       .populate("students", "name email");
 
     if (!course) {
@@ -256,6 +265,7 @@ export const getCourseById = async (req, res) => {
       ...courseObj,
       thumbnail: ensureFullUrl(courseObj.thumbnail),
       thumbnailExists: thumbnailExists,
+      studentsCount: courseObj.students?.length || 0,
       // Add flag to indicate if course is admin-created (no teacher)
       isAdminCreated: !courseObj.teacher,
       teacher: courseObj.teacher || null // Explicitly set to null if no teacher
@@ -279,7 +289,7 @@ export const enrollCourse = async (req, res) => {
     const userId = req.user.userId; // student
     const { courseId } = req.params;
 
-    const course = await Course.findById(courseId);
+    const course = await Course.findById(courseId).populate('teacher', 'name email');
     if (!course) {
       return res.status(404).json({ success: false, message: "Course not found" });
     }
@@ -288,9 +298,40 @@ export const enrollCourse = async (req, res) => {
       return res.status(400).json({ success: false, message: "Already enrolled" });
     }
 
+    // Get student details for notification
+    const student = await User.findById(userId).select('name email');
+
     // here you can add payment verification logic before enrollment
     course.students.push(userId);
     await course.save();
+
+    // Send notification to teacher about the enrollment
+    if (course.teacher && course.teacher._id) {
+      try {
+        const isPaidCourse = course.price && course.price > 0;
+        const notificationType = isPaidCourse ? 'course_purchase' : 'course_enrollment';
+
+        await createNotification({
+          recipientId: course.teacher._id,
+          recipientRole: 'teacher',
+          type: notificationType,
+          title: isPaidCourse ? 'New Course Purchase!' : 'New Course Enrollment!',
+          message: `${student?.name || 'A student'} has ${isPaidCourse ? 'purchased' : 'enrolled in'} your course "${course.title}"`,
+          fromUserId: userId,
+          relatedCourseId: courseId,
+          data: {
+            amount: course.price || 0,
+            courseName: course.title,
+            studentName: student?.name || 'Unknown',
+            studentEmail: student?.email || ''
+          }
+        });
+        console.log(`📬 Notification sent to teacher ${course.teacher.email} for course enrollment`);
+      } catch (notifError) {
+        console.error('Error sending notification to teacher:', notifError);
+        // Don't fail enrollment if notification fails
+      }
+    }
 
     res.status(200).json({ success: true, message: "Enrolled successfully", course });
   } catch (error) {

@@ -15,7 +15,38 @@ const userSchema = new mongoose.Schema(
     isVerified: { type: Boolean, default: false },
     quizAttempts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Quiz' }], // Track attempted quizzes
     // Teacher permission for paid quiz creation (only admin can enable this)
-    canCreatePaidQuiz: { type: Boolean, default: false }
+    canCreatePaidQuiz: { type: Boolean, default: false },
+
+    // Teacher Verification Fields (KYC)
+    teacherVerification: {
+      status: {
+        type: String,
+        enum: ['not_submitted', 'pending', 'approved', 'rejected'],
+        default: 'not_submitted'
+      },
+      aadharFront: { type: String, default: null }, // Aadhar card front image
+      aadharBack: { type: String, default: null }, // Aadhar card back image
+      panCard: { type: String, default: null }, // PAN card image
+      marksheet: { type: String, default: null }, // Marksheet/qualification proof
+      submittedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      rejectionReason: { type: String, default: null }
+    },
+
+    // Soft Delete Fields
+    isActive: { type: Boolean, default: true }, // Account status
+    deletionRequested: { type: Boolean, default: false }, // Has user requested deletion
+    deletionRequestedAt: { type: Date, default: null }, // When deletion was requested
+    deletionReason: { type: String, default: null }, // Reason for account deletion
+    deletionStatus: {
+      type: String,
+      enum: ['none', 'pending', 'approved', 'rejected'],
+      default: 'none'
+    }, // Admin approval status
+    deletionApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, // Admin who approved
+    deletionApprovedAt: { type: Date, default: null }, // When admin approved
+    deactivatedAt: { type: Date, default: null } // When account was deactivated
   },
   { timestamps: true }
 );

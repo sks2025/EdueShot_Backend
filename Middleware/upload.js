@@ -66,6 +66,14 @@ const courseUpload = upload.fields([
 // Profile picture upload
 const profilePicUpload = upload.single('profilePic');
 
+// Teacher verification documents upload
+const verificationDocsUpload = upload.fields([
+  { name: 'aadharFront', maxCount: 1 },
+  { name: 'aadharBack', maxCount: 1 },
+  { name: 'panCard', maxCount: 1 },
+  { name: 'marksheet', maxCount: 1 }
+]);
+
 // Error handling middleware for multer
 const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -88,4 +96,4 @@ const handleUploadError = (err, req, res, next) => {
   next();
 };
 
-export { videoUpload, imageUpload, courseUpload, profilePicUpload, handleUploadError };
+export { videoUpload, imageUpload, courseUpload, profilePicUpload, verificationDocsUpload, handleUploadError };

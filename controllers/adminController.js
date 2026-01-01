@@ -62,17 +62,25 @@ const adminLogin = async (req, res) => {
       });
     }
 
-    // Generate JWT token
+    // Generate JWT tokens - 7 days for access, 30 days for refresh
     const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
+      { userId: user._id, email: user.email, role: user.role, type: 'access' },
       process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
+      { expiresIn: '7d' }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user._id, email: user.email, role: user.role, type: 'refresh' },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
     );
 
     res.json({
       success: true,
       message: 'Admin login successful',
       token,
+      refreshToken,
+      expiresIn: 604800, // 7 days in seconds
       admin: {
         id: user._id,
         name: user.name,
@@ -533,7 +541,7 @@ const getCourseById = async (req, res) => {
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
   if (!filename) return null;
-  const defaultUrl = 'http://93.127.213.176:3002';
+  const defaultUrl = 'http://192.168.43.18:3002';
   let baseUrl = process.env.BASE_URL || defaultUrl;
   
   // Ensure BASE_URL has proper protocol
