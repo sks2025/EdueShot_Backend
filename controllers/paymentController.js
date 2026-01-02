@@ -4,6 +4,8 @@ import { Payment } from '../Models/paymentModel.js';
 import { Course } from '../Models/courseModel.js';
 import { Withdrawal } from '../Models/withdrawalModel.js';
 import User from '../Models/userModel.js';
+import { createNotification } from './notificationController.js';
+import AdminNotification from '../Models/adminNotificationModel.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -171,6 +173,39 @@ export const verifyPayment = async (req, res) => {
     payment.razorpaySignature = razorpaySignature;
     payment.status = 'completed';
     await payment.save();
+
+    // Send notification to teacher about the course purchase
+    if (course.teacher) {
+      try {
+        // Populate course teacher if not already populated
+        const courseWithTeacher = await Course.findById(payment.courseId).populate('teacher', 'name email');
+        
+        // Get student details for notification
+        const student = await User.findById(userId).select('name email');
+
+        if (courseWithTeacher.teacher && courseWithTeacher.teacher._id) {
+          await createNotification({
+            recipientId: courseWithTeacher.teacher._id,
+            recipientRole: 'teacher',
+            type: 'course_purchase',
+            title: 'New Course Purchase!',
+            message: `${student?.name || 'A student'} has purchased your course "${course.title}"`,
+            fromUserId: userId,
+            relatedCourseId: payment.courseId,
+            data: {
+              amount: payment.amount,
+              courseName: course.title,
+              studentName: student?.name || 'Unknown',
+              studentEmail: student?.email || ''
+            }
+          });
+          console.log(`📬 Notification sent to teacher for course purchase: ${course.title}`);
+        }
+      } catch (notifError) {
+        console.error('Error sending notification to teacher:', notifError);
+        // Don't fail payment verification if notification fails
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -448,6 +483,15 @@ export const requestWithdrawal = async (req, res) => {
       });
     }
 
+    // Get user details
+    const user = await User.findById(userId).select('name email role');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
     // Create withdrawal request
     const withdrawal = new Withdrawal({
       userId,
@@ -460,9 +504,53 @@ export const requestWithdrawal = async (req, res) => {
 
     await withdrawal.save();
 
+    // Create admin notification for withdrawal request
+    try {
+      const adminNotification = new AdminNotification({
+        type: 'withdrawal',
+        title: `Withdrawal Request - ${user.role.charAt(0).toUpperCase() + user.role.slice(1)}`,
+        message: `${user.name} (${user.email}) has requested a withdrawal of ₹${amount} via ${paymentMethod === 'bank_transfer' ? 'Bank Transfer' : paymentMethod === 'upi' ? 'UPI' : 'Paytm'}.`,
+        fromUser: userId,
+        data: {
+          userRole: user.role,
+          userEmail: user.email,
+          userName: user.name,
+          withdrawalId: withdrawal._id.toString(),
+          withdrawalAmount: amount,
+          paymentMethod: paymentMethod
+        },
+        status: 'unread'
+      });
+      await adminNotification.save();
+      console.log(`📬 Admin notification created for withdrawal request from ${user.email}`);
+    } catch (notifError) {
+      console.error('Error creating admin notification:', notifError);
+      // Don't fail withdrawal if notification fails
+    }
+
+    // Send notification to user about withdrawal request
+    try {
+      await createNotification({
+        recipientId: userId,
+        recipientRole: user.role,
+        type: 'system',
+        title: 'Withdrawal Request Submitted',
+        message: `Your withdrawal request of ₹${amount} has been submitted successfully. The amount will be credited to your account within 48-72 hours.`,
+        fromUserId: null,
+        data: {
+          withdrawalAmount: amount,
+          paymentMethod: paymentMethod
+        }
+      });
+      console.log(`📬 User notification sent for withdrawal request`);
+    } catch (userNotifError) {
+      console.error('Error sending user notification:', userNotifError);
+      // Don't fail withdrawal if notification fails
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Withdrawal request submitted successfully',
+      message: 'Withdrawal request submitted successfully. Your amount will be credited within 48-72 hours.',
       withdrawal: {
         id: withdrawal._id,
         amount: withdrawal.amount,

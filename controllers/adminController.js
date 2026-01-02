@@ -541,7 +541,7 @@ const getCourseById = async (req, res) => {
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
   if (!filename) return null;
-  const defaultUrl = 'http://192.168.43.18:3002';
+  const defaultUrl = 'http://172.20.10.4:3002';
   let baseUrl = process.env.BASE_URL || defaultUrl;
   
   // Ensure BASE_URL has proper protocol

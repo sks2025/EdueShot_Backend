@@ -1327,7 +1327,7 @@ const uploadProfilePic = async (req, res) => {
     }
 
     // Get BASE_URL from environment
-    const BASE_URL = process.env.BASE_URL || 'http://192.168.43.18:3002';
+    const BASE_URL = process.env.BASE_URL || 'http://172.20.10.4:3002';
     const profilePicUrl = `${BASE_URL}/uploads/${req.file.filename}`;
 
     // Update user profile pic

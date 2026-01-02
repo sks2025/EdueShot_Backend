@@ -224,7 +224,7 @@ app.get('/debug/uploads', (req, res) => {
         name: file,
         size: stats.size,
         created: stats.birthtime,
-        url: `http://192.168.43.18:3002/uploads/${file}`
+        url: `http://172.20.10.4:3002/uploads/${file}`
       };
     });
 

@@ -5,6 +5,7 @@ import {
     getAllQuizzes,
     getMyQuizzes,
     getQuizById,
+    updateQuiz,
     deleteQuiz,
     getQuizzesForStudentDashboard,
     getStudentDashboardQuizzes,
@@ -57,6 +58,7 @@ router.get("/:quizId/winners", authenticateToken, getQuizWinners); // Get quiz w
 
 // General quiz routes (MUST come after specific routes)
 router.get("/:id", authenticateToken, getQuizById); // Get quiz by ID
+router.put("/:id", authenticateToken, updateQuiz); // Teacher update quiz
 router.delete("/:id", authenticateToken, deleteQuiz); // Teacher delete quiz
 
 export default router;

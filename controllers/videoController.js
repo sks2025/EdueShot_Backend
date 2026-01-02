@@ -26,7 +26,7 @@ const getVideoDuration = (videoPath) => {
 // Helper function to generate full URL for uploaded files
 const generateFileUrl = (filename) => {
   // Default to production server URL
-  const defaultUrl = 'http://192.168.43.18:3002';
+  const defaultUrl = 'http://172.20.10.4:3002';
   let baseUrl = process.env.BASE_URL || defaultUrl;
   
   // Ensure BASE_URL has proper protocol
@@ -43,13 +43,13 @@ const ensureFullUrl = (url) => {
   if (!url) return null;
   
   // Default base URL
-  const defaultUrl = 'http://192.168.43.18:3002';
+  const defaultUrl = 'http://172.20.10.4:3002';
   
   // Check if already full URL with proper protocol
   if (url.startsWith('http://') || url.startsWith('https://')) {
     // Fix localhost references
-    let fixedUrl = url.replace(/localhost/gi, '192.168.43.18');
-    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '192.168.43.18');
+    let fixedUrl = url.replace(/localhost/gi, '172.20.10.4');
+    fixedUrl = fixedUrl.replace(/127\.0\.0\.1/gi, '172.20.10.4');
     return fixedUrl;
   }
   

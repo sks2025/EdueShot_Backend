@@ -4,7 +4,7 @@ const adminNotificationSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ['account_deletion', 'report', 'verification', 'other'],
+      enum: ['account_deletion', 'report', 'verification', 'withdrawal', 'other'],
       required: true
     },
     title: { type: String, required: true },
@@ -22,7 +22,10 @@ const adminNotificationSchema = new mongoose.Schema(
       reason: { type: String }, // Deletion reason
       userRole: { type: String }, // student/teacher
       userEmail: { type: String },
-      userName: { type: String }
+      userName: { type: String },
+      withdrawalId: { type: String }, // Withdrawal request ID
+      withdrawalAmount: { type: Number }, // Withdrawal amount
+      paymentMethod: { type: String } // Payment method for withdrawal
     },
 
     // Status tracking

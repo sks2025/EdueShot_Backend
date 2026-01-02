@@ -3,7 +3,7 @@ import { Feedback } from '../Models/feedbackModel.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const BASE_URL = process.env.BASE_URL || 'http://192.168.43.18:3002';
+const BASE_URL = process.env.BASE_URL || 'http://172.20.10.4:3002';
 
 // Helper function to ensure full URL
 const ensureFullUrl = (url) => {

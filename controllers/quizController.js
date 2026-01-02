@@ -358,6 +358,215 @@ export const getQuizById = async (req, res) => {
     }
 };
 
+// ✅ Update Quiz (Teacher only - can only update own quizzes)
+export const updateQuiz = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const userRole = req.user.role;
+
+        // Check if user is teacher
+        if (userRole !== "teacher") {
+            return res.status(403).json({
+                success: false,
+                message: "Only teachers can update quizzes."
+            });
+        }
+
+        // Find the quiz
+        const quiz = await Quiz.findById(id);
+        if (!quiz) {
+            return res.status(404).json({
+                success: false,
+                message: "Quiz not found."
+            });
+        }
+
+        // Check if the teacher owns this quiz
+        if (quiz.createdBy.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: "You can only update your own quizzes."
+            });
+        }
+
+        // Check if quiz is currently active (optional - you might want to prevent update of active quizzes)
+        const status = updateQuizStatus(quiz);
+        if (status === 'active') {
+            return res.status(400).json({
+                success: false,
+                message: "Cannot update an active quiz. Please wait for it to end."
+            });
+        }
+
+        const {
+            title,
+            description,
+            questions,
+            startDate,
+            endDate,
+            startTime,
+            endTime,
+            totalDuration,
+            level,
+            category,
+            totalMarks,
+            tags,
+            price
+        } = req.body;
+
+        // Update fields if provided
+        if (title) quiz.title = title;
+        if (description !== undefined) quiz.description = description;
+        if (level) {
+            if (!['beginner', 'intermediate', 'advanced', 'expert'].includes(level)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid level. Must be beginner, intermediate, advanced, or expert.'
+                });
+            }
+            quiz.level = level;
+        }
+        if (category) quiz.category = category;
+        if (totalMarks) quiz.totalMarks = totalMarks;
+        if (tags && Array.isArray(tags)) quiz.tags = tags;
+
+        // Update questions if provided
+        if (questions && Array.isArray(questions)) {
+            if (questions.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Quiz must contain at least one question.'
+                });
+            }
+
+            for (const q of questions) {
+                if (!q.questionText || !q.options || !Array.isArray(q.options) || q.options.length !== 4) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Each question must have questionText and exactly 4 options.'
+                    });
+                }
+                
+                if (q.correctAnswer === undefined || q.correctAnswer < 0 || q.correctAnswer > 3) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Each question must have a valid correctAnswer (0-3).'
+                    });
+                }
+
+                if (!q.timeLimit || q.timeLimit < 5) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Each question must have a timeLimit of at least 5 seconds.'
+                    });
+                }
+            }
+
+            quiz.questions = questions;
+        }
+
+        // Update timing if provided
+        if (startDate || startTime || endDate || endTime) {
+            const newStartDate = startDate ? new Date(startDate) : quiz.startDate;
+            const newEndDate = endDate ? new Date(endDate) : quiz.endDate;
+            const newStartTime = startTime || quiz.startTime;
+            const newEndTime = endTime || quiz.endTime;
+
+            // Validate time format
+            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+            if (startTime && !timeRegex.test(startTime)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Start time must be in HH:MM format (24-hour).'
+                });
+            }
+            if (endTime && !timeRegex.test(endTime)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'End time must be in HH:MM format (24-hour).'
+                });
+            }
+
+            const startDateTime = new Date(`${newStartDate.toISOString().split('T')[0]}T${newStartTime}`);
+            const endDateTime = new Date(`${newEndDate.toISOString().split('T')[0]}T${newEndTime}`);
+            const now = new Date();
+
+            if (startDateTime <= now) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Quiz start date and time must be in the future.'
+                });
+            }
+
+            if (endDateTime <= startDateTime) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Quiz end date and time must be after start date and time.'
+                });
+            }
+
+            if (startDate) quiz.startDate = newStartDate;
+            if (endDate) quiz.endDate = newEndDate;
+            if (startTime) quiz.startTime = newStartTime;
+            if (endTime) quiz.endTime = newEndTime;
+
+            // Recalculate duration if timing changed
+            if (startDate || startTime || endDate || endTime) {
+                const diffInMinutes = Math.ceil((endDateTime - startDateTime) / (1000 * 60));
+                quiz.totalDuration = totalDuration || diffInMinutes;
+            }
+        }
+
+        if (totalDuration) {
+            quiz.totalDuration = totalDuration;
+        }
+
+        if (price !== undefined) {
+            const priceNum = typeof price === 'string' ? parseFloat(price) : price;
+            if (!isNaN(priceNum) && priceNum >= 0) {
+                quiz.price = priceNum;
+            }
+        }
+
+        await quiz.save();
+
+        // Populate createdBy
+        const populatedQuiz = await Quiz.findById(quiz._id)
+            .populate('createdBy', 'name email role');
+
+        // Add status and timing information
+        const quizObj = populatedQuiz.toObject();
+        const updatedStatus = updateQuizStatus(quiz);
+        const startDateTime = new Date(`${quiz.startDate.toISOString().split('T')[0]}T${quiz.startTime}`);
+        const endDateTime = new Date(`${quiz.endDate.toISOString().split('T')[0]}T${quiz.endTime}`);
+
+        const quizWithStatus = {
+            ...quizObj,
+            status: updatedStatus,
+            startDateTime,
+            endDateTime,
+            isActive: updatedStatus === 'active',
+            isScheduled: updatedStatus === 'scheduled',
+            isEnded: updatedStatus === 'ended'
+        };
+
+        res.status(200).json({
+            success: true,
+            message: "Quiz updated successfully.",
+            quiz: quizWithStatus
+        });
+
+    } catch (error) {
+        console.error('Update quiz error:', error);
+        res.status(500).json({
+            success: false,
+            message: "Error updating quiz",
+            error: error.message
+        });
+    }
+};
+
 // ✅ Delete Quiz (Teacher only - can only delete own quizzes)
 export const deleteQuiz = async (req, res) => {
     try {

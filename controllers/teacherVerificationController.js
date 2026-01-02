@@ -3,7 +3,7 @@ import { createNotification } from './notificationController.js';
 
 // Helper function to generate full URL for uploaded files
 const getBaseUrl = () => {
-  const defaultUrl = 'http://192.168.43.18:3002';
+  const defaultUrl = 'http://172.20.10.4:3002';
   return process.env.BASE_URL || defaultUrl;
 };
 
